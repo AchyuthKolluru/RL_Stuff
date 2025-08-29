@@ -1,0 +1,39 @@
+<mujoco model="g1_inspire_can_grasp">
+  <compiler angle="radian" coordinate="local"/>
+  <option timestep="0.002" integrator="RK4" impratio="10"/>
+  <size nconmax="400" njmax="2000"/>
+
+  <!-- Include the G1 with Inspire hand model -->
+  <!-- Adjust the relative path to where your robot XML actually is -->
+  <include file="./g1_29dof_with_hand_rev_1_0.xml"/>
+
+  <default>
+    <geom condim="3" solref="0.005 1" solimp="0.8 0.8 0.01" friction="0.9 0.005 0.0001"/>
+  </default>
+
+  <asset>
+    <!-- Optional: texture for can -->
+  </asset>
+
+  <worldbody>
+    <!-- Ground plane or a small table -->
+    <geom name="ground" type="plane" size="5 5 0.1" rgba="0.9 0.9 0.9 1"/>
+
+    <!-- The soda can: radius ~33 mm, half-length ~60 mm (~12 oz can) -->
+    <body name="can" pos="0.45 0.0 1.05">
+      <joint name="can_free" type="free"/>
+      <geom name="can_geom" type="cylinder" size="0.033 0.06" density="900" rgba="0.7 0.7 0.7 1"/>
+      <!-- site at can COM for observation -->
+      <site name="can_site" pos="0 0 0" size="0.005" type="sphere" rgba="0.2 0.2 1 1"/>
+    </body>
+
+    <!-- Optional: helper site at expected palm location. If your robot XML
+         already defines one, you can skip adding another. Otherwise, add a small
+         site to the *palm* body in the robot XML itself for better precision. -->
+  </worldbody>
+
+  <sensor>
+    <!-- Contact force sensors can be declared here if your finger pad geoms have names.
+         If not, we will infer contact from data.contact in Python. -->
+  </sensor>
+</mujoco>
