@@ -89,19 +89,19 @@ class G1InspireCanGrasp(gym.Env):
         self.jnt_range   = self.model.jnt_range[self.act_to_joint].copy()
 
         # PD gains + torque limits
-        self.kp = np.full(len(self.hand_actuator_ids), 30.0, dtype=np.float64)
-        self.kd = np.full(len(self.hand_actuator_ids), 0.5, dtype=np.float64)
+        self.kp = np.full(len(self.hand_actuator_ids), 20.0, dtype=np.float64)
+        self.kd = np.full(len(self.hand_actuator_ids), 1.0, dtype=np.float64)
         self.hand_actuator_names = [
             mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, a)
             for a in self.hand_actuator_ids
         ]
-        self.torque_limit = np.array(
-            [2.45 if ("thumb_0" in n) else 1.4 for n in self.hand_actuator_names],
-            dtype=np.float64
+        self.torque_limit = np.minimum(
+            np.array([2.45 if ("thumb_0" in n) else 1.4 for n in self.hand_actuator_names], dtype=np.float64),
+            1.0
         )
 
         # Action scaling
-        self.action_scale = 0.1
+        self.action_scale = 0.03
         self.des_q = self.data.qpos[self.jnt_qposadr].copy()
         self.action_space = spaces.Box(-1.0, 1.0,
                                        shape=(len(self.hand_actuator_ids),),
@@ -124,6 +124,7 @@ class G1InspireCanGrasp(gym.Env):
         qpos = self.data.qpos[self.jnt_qposadr].copy()
         qvel = self.data.qvel[self.jnt_dofadr].copy()
         can_pos = self.data.site_xpos[self.can_sid].copy()
+        # can_quat = self.data.site_xquat[self.can_sid].copy()
         can_quat = _site_quat(self.data, self.can_sid)
         palm_pos = self.data.site_xpos[self.palm_sid].copy()
         rel_vec = can_pos - palm_pos

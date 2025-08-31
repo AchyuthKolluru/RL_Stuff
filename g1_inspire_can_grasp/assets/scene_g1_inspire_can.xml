@@ -1,23 +1,19 @@
 <mujoco model="g1_inspire_can_scene">
+  <!-- Include your robot model -->
   <include file="g1_29dof_with_hand_rev_1_0.xml"/>
 
-  <option gravity="0 0 -9.81" timestep="0.002"/>
+  <!-- Softer, more stable physics -->
+  <option timestep="0.0015" iterations="150" tolerance="1e-10" cone="elliptic"/>
 
   <worldbody>
-    <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
-    <geom name="floor_scene" size="0 0 0.05" type="plane" rgba="0.8 0.9 0.8 1"/>
+    <!-- No floor/light here; they live in the robot XML to avoid duplicates -->
 
-    <!-- Soda can object -->
-    <body name="can" pos="0.42 0.02 1.02">
+    <!-- Soda can object (slightly farther and higher than before) -->
+    <body name="can" pos="0.45 0.02 1.06">
       <joint name="can_free" type="free"/>
       <geom name="can_geom" type="cylinder" size="0.033 0.06"
-            mass="0.35" rgba="0.8 0.1 0.1 1" friction="1 0.005 0.0001"/>
+            mass="0.35" rgba="0.8 0.1 0.1 1" friction="1.0 0.005 0.0001"/>
       <site name="can_site" pos="0 0 0" size="0.005" type="sphere" rgba="0.1 0.1 1 1"/>
     </body>
   </worldbody>
-
-  <!-- Weld robot pelvis to world so it doesn't fall -->
-  <equality>
-    <weld body1="pelvis" body2="world" solref="0.02 1" solimp="0.9 0.9 0.01"/>
-  </equality>
 </mujoco>
