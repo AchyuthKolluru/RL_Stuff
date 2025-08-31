@@ -115,6 +115,11 @@ class G1InspireCanGrasp(gym.Env):
 
         # Observation space
         self.can_sid = named_site_id(self.model, "can_site")
+        try:
+            j = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
+            self.can_free_joint = j if j >= 0 else None
+        except Exception:
+            self.can_free_joint = None
         palm_name = "palm_site_right" if hand.startswith("r") else "palm_site_left"
         self.palm_sid = named_site_id(self.model, palm_name)
 
@@ -148,24 +153,25 @@ class G1InspireCanGrasp(gym.Env):
         self.data.ctrl[self.hand_actuator_ids] = tau
 
     def _randomize(self):
-        can_jnt = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
-        if can_jnt < 0:
-            raise RuntimeError("Joint 'can_free' not found.")
-        adr = self.model.jnt_qposadr[can_jnt]
-        self.data.qpos[adr:adr+3] = np.array([
-            0.42 + np.random.uniform(-0.03, 0.03),
-            0.02 + np.random.uniform(-0.03, 0.03),
-            1.02 + np.random.uniform(-0.02, 0.02)
-        ])
-        axis = np.random.randn(3); axis /= (np.linalg.norm(axis)+1e-8)
-        angle = np.random.uniform(-0.2, 0.2)
+        # If we don't have a free joint, the can is static in the XML → nothing to randomize.
+        if self.can_free_joint is None:
+            return
+        adr = self.model.jnt_qposadr[self.can_free_joint]
+        # Place near palm (adjust as needed)
+        x = 0.42 + np.random.uniform(-0.02, 0.02)
+        y = -0.03 + np.random.uniform(-0.02, 0.02)
+        z = 1.03 + np.random.uniform(-0.02, 0.02)
+        self.data.qpos[adr:adr+3] = np.array([x, y, z], dtype=np.float64)
+
+        # Small tilt
+        axis = np.random.randn(3); axis /= (np.linalg.norm(axis) + 1e-8)
+        angle = np.random.uniform(-0.15, 0.15)
         s = math.sin(angle/2.0)
-        self.data.qpos[adr+3:adr+7] = np.array(
-            [math.cos(angle/2.0), axis[0]*s, axis[1]*s, axis[2]*s],
-            dtype=np.float64
-        )
-        self.data.qvel[self.model.jnt_dofadr[can_jnt]:
-                       self.model.jnt_dofadr[can_jnt]+6] = 0.0
+        self.data.qpos[adr+3:adr+7] = np.array([math.cos(angle/2.0), axis[0]*s, axis[1]*s, axis[2]*s], dtype=np.float64)
+
+        # Zero velocities
+        dof = self.model.jnt_dofadr[self.can_free_joint]
+        self.data.qvel[dof:dof+6] = 0.0
 
     # ---------------- gym api ----------------
     def reset(self, seed=None, options=None):
@@ -192,31 +198,40 @@ class G1InspireCanGrasp(gym.Env):
 
     def _compute_reward_and_success(self):
         mujoco.mj_forward(self.model, self.data)
+
         can_pos = self.data.site_xpos[self.can_sid]
         palm_pos = self.data.site_xpos[self.palm_sid]
         dist = np.linalg.norm(can_pos - palm_pos)
 
-        contact_bonus = 0.0
+        # Count contacts with the can
+        touch_bonus = 0.0
+        touched = False
         for i in range(self.data.ncon):
             c = self.data.contact[i]
-            n1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1)
-            n2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2)
-            if n1 == "can_geom" or n2 == "can_geom":
-                contact_bonus += 0.002
+            if c.geom1 >= 0 and c.geom2 >= 0:
+                name1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1)
+                name2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2)
+                if name1 == "can_geom" or name2 == "can_geom":
+                    touched = True
+                    touch_bonus += 0.005
 
-        can_j = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
-        z = self.data.qpos[self.model.jnt_qposadr[can_j] + 2]
-        height_bonus = 1.0 * max(0.0, z - 1.02)
+        ctrl_penalty = 1e-3 * float(np.sum(self.data.ctrl[self.hand_actuator_ids] ** 2))
 
-        ctrl_penalty = 1e-3 * float(np.sum(self.data.ctrl[self.hand_actuator_ids]**2))
+        # If the can is free, keep the old lift term; otherwise 0
+        height_bonus = 0.0
+        if self.can_free_joint is not None:
+            z = self.data.qpos[self.model.jnt_qposadr[self.can_free_joint] + 2]
+            height_bonus = 6.0 * max(0.0, z - 1.02)
 
-        reward = (
-            1.5 * (1.0 / (0.05 + dist))
-            + contact_bonus
-            + 6.0 * height_bonus
-            - ctrl_penalty
-        )
-        success = (z > 1.02 + self.target_lift) and (dist < 0.05)
+        # Distance shaping encourages approaching the can; touch gives extra reward
+        reward = 2.0 * (1.0 / (0.05 + dist)) + touch_bonus + height_bonus - ctrl_penalty
+
+        # Success: for STATIC can → close & touching. For FREE can → lifted & close.
+        if self.can_free_joint is None:
+            success = (dist < 0.04) and touched
+        else:
+            success = (dist < 0.05) and (z > 1.02 + self.target_lift)
+
         return reward, bool(success)
 
     def render(self):
