@@ -12,6 +12,11 @@ import torch
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback
+from pathlib import Path
+
+# in main(), replace how we compute the default scene path
+script_dir = Path(__file__).resolve().parent
+default_scene = script_dir / "RL-shenanigans" / "g1_inspire_can_grasp" / "assets" / "scene_g1_inspire_can.xml"
 
 # Import your env
 from env_g1_inspire_can import G1InspireCanGrasp
@@ -49,6 +54,12 @@ def main():
     p.add_argument("--checkpoint_every_steps", type=int, default=50_000)
     p.add_argument("--render_mode", type=str, default="none", choices=["none", "human"])
     args = p.parse_args()
+    
+    scene_abs = Path(args.scene).resolve() if args.scene else default_scene
+    scene_abs = scene_abs.resolve()
+
+    if not scene_abs.is_file():
+        raise FileNotFoundError(f"Scene XML not found: {scene_abs}")
 
     scene_abs = os.path.abspath(args.scene)
 
