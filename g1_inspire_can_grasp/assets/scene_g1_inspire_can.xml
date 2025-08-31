@@ -5,7 +5,7 @@
 
   <worldbody>
     <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
-    <geom name="floor" size="0 0 0.05" type="plane" rgba="0.8 0.9 0.8 1"/>
+    <geom name="floor_scene" size="0 0 0.05" type="plane" rgba="0.8 0.9 0.8 1"/>
 
     <!-- Soda can object -->
     <body name="can" pos="0.42 0.02 1.02">
