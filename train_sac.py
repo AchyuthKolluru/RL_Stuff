@@ -1,38 +1,72 @@
 import os
 import argparse
+import multiprocessing as mp
+
+mp.set_start_method("spawn", force=True)
+
+os.environ.setdefault("MUJOCO_GL", "egl")
+
 import numpy as np
-import gymnasium as gym
+import torch
+
 from stable_baselines3 import SAC
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback
 
+# Import your env
 from env_g1_inspire_can import G1InspireCanGrasp
 
-def make_env(scene_xml, hand, seed, rank):
+
+def make_env(scene_xml, hand, seed, rank, max_steps=400, render_mode="none"):
+    """Wrap env ctor to surface errors from worker processes."""
     def _thunk():
-        env = G1InspireCanGrasp(scene_xml_path=scene_xml,
-                                render_mode="none",
-                                hand=hand,
-                                max_steps=400,
-                                randomize_init=True)
-        env.reset(seed=seed + rank)
-        return env
+        try:
+            env = G1InspireCanGrasp(
+                scene_xml_path=scene_xml,
+                hand=hand,
+                render_mode=render_mode,
+                max_steps=max_steps,
+                randomize_init=True,
+            )
+            env.reset(seed=seed + rank)
+            return env
+        except Exception as e:
+            import traceback, sys
+            print(f"\n[Worker {rank}] Failed to create env:\n{traceback.format_exc()}\n",
+                  file=sys.stderr, flush=True)
+            raise
     return _thunk
 
-if __name__ == "__main__":
+
+def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--scene", type=str, default="RL-shenanigans/g1_inspire_can_grasp/assets/scene_g1_inspire_can.xml")
-    p.add_argument("--hand", type=str, default="right", choices=["right","left"])
+    p.add_argument("--scene", type=str,
+                   default="RL-shenanigans/g1_inspire_can_grasp/assets/scene_g1_inspire_can.xml")
+    p.add_argument("--hand", type=str, default="right", choices=["right", "left"])
     p.add_argument("--num_envs", type=int, default=8)
     p.add_argument("--total_steps", type=int, default=1_000_000)
     p.add_argument("--logdir", type=str, default="logs/g1_inspire_can_sac")
+    p.add_argument("--checkpoint_every_steps", type=int, default=50_000)
+    p.add_argument("--render_mode", type=str, default="none", choices=["none", "human"])
     args = p.parse_args()
+
+    scene_abs = os.path.abspath(args.scene)
+
+    torch.set_num_threads(1)
 
     os.makedirs(args.logdir, exist_ok=True)
 
-    env_fns = [make_env(args.scene, args.hand, seed=42, rank=i) for i in range(args.num_envs)]
-    vec_env = SubprocVecEnv(env_fns)
-    vec_env = VecMonitor(vec_env, filename=None)
+    if args.num_envs <= 1:
+        env = DummyVecEnv([make_env(scene_abs, args.hand, seed=42, rank=0,
+                                    render_mode=args.render_mode)])
+    else:
+        env_fns = [make_env(scene_abs, args.hand, seed=42, rank=i,
+                            render_mode=args.render_mode)
+                   for i in range(args.num_envs)]
+        # explicitly pass spawn here too
+        env = SubprocVecEnv(env_fns, start_method="spawn")
+
+    vec_env = VecMonitor(env, filename=None)
 
     model = SAC(
         "MlpPolicy",
@@ -48,9 +82,19 @@ if __name__ == "__main__":
         target_update_interval=1,
         verbose=1,
         tensorboard_log=args.logdir,
-        policy_kwargs=dict(net_arch=[512, 512, 256])
+        policy_kwargs=dict(net_arch=[512, 512, 256]),
     )
 
-    ckpt_cb = CheckpointCallback(save_freq=50_000 // args.num_envs, save_path=args.logdir, name_prefix="sac")
+    save_freq = max(args.checkpoint_every_steps // max(args.num_envs, 1), 1)
+    ckpt_cb = CheckpointCallback(save_freq=save_freq,
+                                 save_path=args.logdir,
+                                 name_prefix="sac")
+
     model.learn(total_timesteps=args.total_steps, log_interval=10, callback=[ckpt_cb])
     model.save(os.path.join(args.logdir, "final_sac"))
+
+    vec_env.close()
+
+
+if __name__ == "__main__":
+    main()
