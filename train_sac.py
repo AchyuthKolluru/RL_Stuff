@@ -1,26 +1,34 @@
 import os
+import torch
 import argparse
+import numpy as np
+from pathlib import Path
 import multiprocessing as mp
+from env_g1_inspire_can import G1InspireCanGrasp
+from stable_baselines3 import SAC
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
+from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 
 mp.set_start_method("spawn", force=True)
 
-os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("MUJOCO_GL", "glfw")
 
-import numpy as np
-import torch
-
-from stable_baselines3 import SAC
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
-from stable_baselines3.common.callbacks import CheckpointCallback
-from pathlib import Path
-
-# in main(), replace how we compute the default scene path
 script_dir = Path(__file__).resolve().parent
 default_scene = script_dir / "RL-shenanigans" / "g1_inspire_can_grasp" / "assets" / "scene_g1_inspire_can.xml"
 
-# Import your env
-from env_g1_inspire_can import G1InspireCanGrasp
+class RenderCallback(BaseCallback):
+    def __init__(self, render_every=1):
+        super().__init__()
+        self.render_every = render_every
 
+    def _on_step(self) -> bool:
+        if self.n_calls % self.render_every == 0:
+            try:
+                env0 = self.training_env.envs[0]
+                env0.render()  # opens / updates the MuJoCo viewer
+            except Exception as e:
+                print(f"[RenderCallback] render failed: {e}")
+        return True
 
 def make_env(scene_xml, hand, seed, rank, max_steps=400, render_mode="none"):
     """Wrap env ctor to surface errors from worker processes."""
@@ -100,8 +108,9 @@ def main():
     ckpt_cb = CheckpointCallback(save_freq=save_freq,
                                  save_path=args.logdir,
                                  name_prefix="sac")
-
-    model.learn(total_timesteps=args.total_steps, log_interval=10, callback=[ckpt_cb])
+    
+    callback = RenderCallback(render_every=1)  # or 5–10 to reduce overhead
+    model.learn(total_timesteps=args.total_timesteps, callback=callback, log_interval=10)
     model.save(os.path.join(args.logdir, "final_sac"))
 
     vec_env.close()
