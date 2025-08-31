@@ -7,6 +7,12 @@ from gymnasium import spaces
 import mujoco
 from mujoco import MjModel, MjData
 
+try:
+    import mujoco.viewer  # noqa: F401
+    HAVE_MJ_VIEWER = True
+except Exception:
+    HAVE_MJ_VIEWER = False
+
 
 def _site_quat(data, sid):
     if hasattr(data, "site_xquat"):
@@ -216,8 +222,17 @@ class G1InspireCanGrasp(gym.Env):
     def render(self):
         if self.render_mode != "human":
             return
+        if not HAVE_MJ_VIEWER:
+            raise RuntimeError(
+                "mujoco.viewer not available. Upgrade MuJoCo (pip install 'mujoco>=2.3.5') "
+                "and ensure MUJOCO_GL=glfw on a machine with a display."
+            )
         if self.viewer is None:
+            # first call opens the window
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+        else:
+            # subsequent calls just sync the already-open window
+            self.viewer.sync()
 
     def close(self):
         if self.viewer is not None:
