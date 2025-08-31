@@ -57,7 +57,7 @@ def main():
                    default="g1_inspire_can_grasp/assets/scene_g1_inspire_can.xml")
     p.add_argument("--hand", type=str, default="right", choices=["right", "left"])
     p.add_argument("--num_envs", type=int, default=8)
-    p.add_argument("--total_steps", type=int, default=1_000_000)
+    p.add_argument("--total_timesteps", type=int, default=200000)
     p.add_argument("--logdir", type=str, default="logs/g1_inspire_can_sac")
     p.add_argument("--checkpoint_every_steps", type=int, default=50_000)
     p.add_argument("--render_mode", type=str, default="none", choices=["none", "human"])
