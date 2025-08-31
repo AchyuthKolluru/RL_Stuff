@@ -1,4 +1,5 @@
 <mujoco model="g1_inspire_can_scene">
+  <compiler angle="radian" coordinate="local"/>
   <!-- Include your robot model -->
   <include file="g1_29dof_with_hand_rev_1_0.xml"/>
 
