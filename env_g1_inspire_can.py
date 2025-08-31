@@ -8,6 +8,15 @@ import mujoco
 from mujoco import MjModel, MjData
 
 
+def _site_quat(data, sid):
+    if hasattr(data, "site_xquat"):
+        return data.site_xquat[sid].copy()
+    R = data.site_xmat[sid].reshape(3, 3)
+    q = np.empty(4, dtype=np.float64)
+    mujoco.mju_mat2Quat(q, R.ravel())
+    return q
+
+
 def find_actuators_by_name(model, names_wanted):
     """Return actuator ids whose name is in names_wanted (exact match)."""
     name_set = set(names_wanted)
@@ -115,7 +124,7 @@ class G1InspireCanGrasp(gym.Env):
         qpos = self.data.qpos[self.jnt_qposadr].copy()
         qvel = self.data.qvel[self.jnt_dofadr].copy()
         can_pos = self.data.site_xpos[self.can_sid].copy()
-        can_quat = self.data.site_xquat[self.can_sid].copy()
+        can_quat = _site_quat(self.data, self.can_sid)
         palm_pos = self.data.site_xpos[self.palm_sid].copy()
         rel_vec = can_pos - palm_pos
         return np.concatenate([qpos, qvel, can_pos, can_quat, rel_vec]).astype(np.float32)
