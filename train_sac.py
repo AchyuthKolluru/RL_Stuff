@@ -14,7 +14,7 @@ mp.set_start_method("spawn", force=True)
 os.environ.setdefault("MUJOCO_GL", "glfw")
 
 script_dir = Path(__file__).resolve().parent
-default_scene = script_dir / "RL-shenanigans" / "g1_inspire_can_grasp" / "assets" / "scene_g1_inspire_can.xml"
+default_scene = script_dir /"g1_inspire_can_grasp" / "assets" / "scene_g1_inspire_can.xml"
 
 class RenderCallback(BaseCallback):
     def __init__(self, render_every=1):
@@ -54,7 +54,7 @@ def make_env(scene_xml, hand, seed, rank, max_steps=400, render_mode="none"):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--scene", type=str,
-                   default="RL-shenanigans/g1_inspire_can_grasp/assets/scene_g1_inspire_can.xml")
+                   default="g1_inspire_can_grasp/assets/scene_g1_inspire_can.xml")
     p.add_argument("--hand", type=str, default="right", choices=["right", "left"])
     p.add_argument("--num_envs", type=int, default=8)
     p.add_argument("--total_steps", type=int, default=1_000_000)
