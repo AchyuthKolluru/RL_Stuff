@@ -5,7 +5,7 @@
   <option timestep="0.002" integrator="Euler" cone="pyramidal"
           jacobian="dense" iterations="80" tolerance="1e-9"/>
 
-  <!-- meshes (ORIGINAL; no H1) -->
+  <!-- meshes -->
   <asset>
     <mesh name="pelvis" file="pelvis.STL"/>
     <mesh name="pelvis_contour_link" file="pelvis_contour_link.STL"/>
@@ -34,14 +34,6 @@
     <mesh name="left_wrist_roll_link" file="left_wrist_roll_link.STL"/>
     <mesh name="left_wrist_pitch_link" file="left_wrist_pitch_link.STL"/>
     <mesh name="left_wrist_yaw_link" file="left_wrist_yaw_link.STL"/>
-    <mesh name="left_hand_palm_link" file="left_hand_palm_link.STL"/>
-    <mesh name="left_hand_thumb_0_link" file="left_hand_thumb_0_link.STL"/>
-    <mesh name="left_hand_thumb_1_link" file="left_hand_thumb_1_link.STL"/>
-    <mesh name="left_hand_thumb_2_link" file="left_hand_thumb_2_link.STL"/>
-    <mesh name="left_hand_middle_0_link" file="left_hand_middle_0_link.STL"/>
-    <mesh name="left_hand_middle_1_link" file="left_hand_middle_1_link.STL"/>
-    <mesh name="left_hand_index_0_link" file="left_hand_index_0_link.STL"/>
-    <mesh name="left_hand_index_1_link" file="left_hand_index_1_link.STL"/>
 
     <mesh name="right_shoulder_pitch_link" file="right_shoulder_pitch_link.STL"/>
     <mesh name="right_shoulder_roll_link" file="right_shoulder_roll_link.STL"/>
@@ -50,14 +42,23 @@
     <mesh name="right_wrist_roll_link" file="right_wrist_roll_link.STL"/>
     <mesh name="right_wrist_pitch_link" file="right_wrist_pitch_link.STL"/>
     <mesh name="right_wrist_yaw_link" file="right_wrist_yaw_link.STL"/>
-    <mesh name="right_hand_palm_link" file="right_hand_palm_link.STL"/>
-    <mesh name="right_hand_thumb_0_link" file="right_hand_thumb_0_link.STL"/>
-    <mesh name="right_hand_thumb_1_link" file="right_hand_thumb_1_link.STL"/>
-    <mesh name="right_hand_thumb_2_link" file="right_hand_thumb_2_link.STL"/>
-    <mesh name="right_hand_middle_0_link" file="right_hand_middle_0_link.STL"/>
-    <mesh name="right_hand_middle_1_link" file="right_hand_middle_1_link.STL"/>
-    <mesh name="right_hand_index_0_link" file="right_hand_index_0_link.STL"/>
-    <mesh name="right_hand_index_1_link" file="right_hand_index_1_link.STL"/>
+  </asset>
+
+    <!-- H1 finger visuals (placeholders) -->
+  <asset>
+    <mesh name="h1_hand_base"          file="L_hand_base_link.STL"/>
+    <mesh name="h1_index_proximal"     file="L_index_proximal.STL"/>
+    <mesh name="h1_index_intermediate" file="L_index_intermediate.STL"/>
+    <mesh name="h1_middle_proximal"    file="L_middle_proximal.STL"/>
+    <mesh name="h1_middle_intermediate"file="L_middle_intermediate.STL"/>
+    <mesh name="h1_ring_proximal"      file="L_ring_proximal.STL"/>
+    <mesh name="h1_ring_intermediate"  file="L_ring_intermediate.STL"/>
+    <mesh name="h1_pinky_proximal"     file="L_pinky_proximal.STL"/>
+    <mesh name="h1_pinky_intermediate" file="L_pinky_intermediate.STL"/>
+    <mesh name="h1_thumb_prox_base"    file="L_thumb_proximal_base.STL"/>
+    <mesh name="h1_thumb_proximal"     file="L_thumb_proximal.STL"/>
+    <mesh name="h1_thumb_intermediate" file="L_thumb_intermediate.STL"/>
+    <mesh name="h1_thumb_distal"       file="L_thumb_distal.STL"/>
   </asset>
 
   <statistic center="1.0 0.7 1.0" extent="0.8"/>
@@ -103,7 +104,7 @@
             pos="-0.02 0.00 -0.04" rgba="0.1 0.3 0.8 0.05"
             density="0" contype="1" conaffinity="1" margin="0.002"/>
 
-      <!-- legs omitted (locked in original) -->
+      <!-- legs omitted (locked in your original) -->
 
       <body name="waist_yaw_link">
         <inertial pos="0.003494 0.000233 0.018034" quat="0.289697 0.591001 -0.337795 0.672821" mass="0.214" diaginertia="0.000163531 0.000107714 0.000102205"/>
@@ -122,7 +123,7 @@
             <geom pos="0.0039635 0 -0.044" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1" mesh="head_link"/>
             <site name="imu_in_torso" size="0.01" pos="-0.03959 -0.00224 0.14792"/>
 
-            <!-- torso collision (bit 1) -->
+            <!-- torso collision: now bit 1 (collides with arms/hands) -->
             <geom name="torso_collision" type="box" size="0.10 0.12 0.14"
                   pos="0.10 0.00 0.12" rgba="0.1 0.7 0.1 0.05"
                   density="0" contype="1" conaffinity="1" margin="0.002"/>
@@ -141,7 +142,7 @@
                   <joint name="left_shoulder_yaw_joint" pos="0 0 0" axis="0 0 1" range="-2.618 2.618" damping="8"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="left_shoulder_yaw_link"/>
 
-                  <!-- Left upper-arm collision (bit 1) -->
+                  <!-- Left upper-arm collision capsule (bit 1) -->
                   <geom name="left_upperarm_col" type="capsule"
                         fromto="0.02 0 -0.02   0.02 0 -0.20" size="0.03"
                         rgba="0 0.5 1 0.05" contype="1" conaffinity="1"
@@ -152,7 +153,7 @@
                     <joint name="left_elbow_joint" pos="0 0 0" axis="0 1 0" range="-1.0472 2.0944" damping="8"/>
                     <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="left_elbow_link"/>
 
-                    <!-- Left forearm collision (bit 1) -->
+                    <!-- Left forearm collision capsule (bit 1) -->
                     <geom name="left_forearm_col" type="capsule"
                           fromto="0.02 0 0   0.14 0 -0.01" size="0.025"
                           rgba="0 0.5 1 0.05" contype="1" conaffinity="1"
@@ -171,36 +172,40 @@
                           <joint name="left_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.61443 1.61443" damping="6"/>
                           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="left_wrist_yaw_link"/>
 
-                          <!-- LEFT regular palm + site -->
-                          <geom type="mesh" mesh="left_hand_palm_link" pos="0.07 0 0"
+                          <!-- LEFT PALM collision (bit 1) -->
+                          <!-- LEFT: Inspire FTX hand (12-DOF) with H1 visual meshes -->
+                          <geom name="left_palm_collision" type="box" size="0.03 0.025 0.008"
+                                pos="0.07 0 0" mass="0.15" friction="1.0 0.01 0.0001"
+                                contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                          <!-- optional palm visual -->
+                          <geom type="mesh" mesh="h1_hand_base" pos="0.07 0 0"
                                 rgba="0.8 0.8 0.8 1" contype="0" conaffinity="0" density="0"/>
                           <site name="palm_site_left" pos="0.07 0 0" size="0.005" type="sphere" rgba="1 0.2 0.2 1"/>
 
-                          <!-- Physics finger capsules (give mass/inertia; visuals from meshes where available) -->
                           <!-- Thumb: ab/adduction + 3x flex -->
                           <body name="left_thumb_base" pos="0.055 0.025 0.0">
                             <joint name="left_hand_thumb_0_joint" axis="0 1 0" range="-0.8 0.8"  damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.020 0 0" size="0.010"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <geom  type="mesh" mesh="left_hand_thumb_0_link" pos="0.01 0 0" rgba="0.85 0.85 0.85 1"
-                                   contype="0" conaffinity="0" density="0"/>
-                            <body name="left_thumb_cmc" pos="0.02 0 0">
+                            <body name="left_thumb_cmc" pos="0 0 0">
                               <joint name="left_hand_thumb_1_joint" axis="0 0 1" range="0 1.2"    damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.025 0 0" size="0.009"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <geom  type="mesh" mesh="left_hand_thumb_1_link" pos="0.0125 0 0" rgba="0.85 0.85 0.85 1"
-                                     contype="0" conaffinity="0" density="0"/>
-                              <body name="left_thumb_mcp" pos="0.025 0 0">
+                              <geom  type="capsule" fromto="0 0 0  0.035 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_thumb_prox_base" pos="0.0175 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <body name="left_thumb_mcp" pos="0.035 0 0">
                                 <joint name="left_hand_thumb_2_joint" axis="0 0 1" range="0 1.2"  damping="0.05" armature="0.002" stiffness="0"/>
-                                <geom  type="capsule" fromto="0 0 0  0.022 0 0"  size="0.0085"
-                                       rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                                <geom  type="mesh" mesh="left_hand_thumb_2_link" pos="0.011 0 0" rgba="0.85 0.85 0.85 1"
-                                       contype="0" conaffinity="0" density="0"/>
-                                <body name="left_thumb_ip" pos="0.022 0 0">
+                                <geom  type="capsule" fromto="0 0 0  0.03 0 0"  size="0.008" rgba="0.8 0.8 0.8 1"
+                                      density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                                <geom  type="mesh" mesh="h1_thumb_proximal" pos="0.015 0 0" rgba="0.9 0.9 0.9 1"
+                                      contype="0" conaffinity="0" density="0"/>
+                                <body name="left_thumb_ip" pos="0.03 0 0">
                                   <joint name="left_hand_thumb_3_joint" axis="0 0 1" range="0 1.2" damping="0.05" armature="0.002" stiffness="0"/>
-                                  <geom  type="capsule" fromto="0 0 0  0.020 0 0" size="0.008"
-                                         rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                                  <site name="left_thumb_tip" pos="0.020 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                                  <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                        density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                                  <geom  type="mesh" mesh="h1_thumb_intermediate" pos="0.014 0 0" rgba="0.9 0.9 0.9 1"
+                                        contype="0" conaffinity="0" density="0"/>
+                                  <site name="left_thumb_tip" pos="0.028 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                                  <geom  type="mesh" mesh="h1_thumb_distal" pos="0.022 0 0" rgba="0.9 0.9 0.9 1"
+                                        contype="0" conaffinity="0" density="0"/>
                                 </body>
                               </body>
                             </body>
@@ -209,60 +214,68 @@
                           <!-- Index (2 DOF) -->
                           <body name="left_index_base" pos="0.075 0.02 0.0">
                             <joint name="left_hand_index_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.009"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <geom  type="mesh" mesh="left_hand_index_0_link" pos="0.014 0 0" rgba="0.85 0.85 0.85 1"
-                                   contype="0" conaffinity="0" density="0"/>
-                            <body name="left_index_mid" pos="0.028 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.04 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_index_proximal" pos="0.02 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="left_index_mid" pos="0.04 0 0">
                               <joint name="left_hand_index_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.022 0 0" size="0.008"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <geom  type="mesh" mesh="left_hand_index_1_link" pos="0.011 0 0" rgba="0.85 0.85 0.85 1"
-                                     contype="0" conaffinity="0" density="0"/>
-                              <site name="left_index_tip" pos="0.022 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.03 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_index_intermediate" pos="0.015 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="left_index_tip" pos="0.03 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
 
                           <!-- Middle (2 DOF) -->
                           <body name="left_middle_base" pos="0.075 0.006 0.0">
                             <joint name="left_hand_middle_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.030 0 0" size="0.009"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <geom  type="mesh" mesh="left_hand_middle_0_link" pos="0.015 0 0" rgba="0.85 0.85 0.85 1"
-                                   contype="0" conaffinity="0" density="0"/>
-                            <body name="left_middle_mid" pos="0.030 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.042 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_middle_proximal" pos="0.021 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="left_middle_mid" pos="0.042 0 0">
                               <joint name="left_hand_middle_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.024 0 0" size="0.008"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <geom  type="mesh" mesh="left_hand_middle_1_link" pos="0.012 0 0" rgba="0.85 0.85 0.85 1"
-                                     contype="0" conaffinity="0" density="0"/>
-                              <site name="left_middle_tip" pos="0.024 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.032 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_middle_intermediate" pos="0.016 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="left_middle_tip" pos="0.032 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
 
-                          <!-- Ring (2 DOF; visual meshes not provided in assets, capsules only) -->
+                          <!-- Ring (2 DOF) -->
                           <body name="left_ring_base" pos="0.075 -0.008 0.0">
                             <joint name="left_hand_ring_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.0085"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <body name="left_ring_mid" pos="0.028 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.04 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_ring_proximal" pos="0.02 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="left_ring_mid" pos="0.04 0 0">
                               <joint name="left_hand_ring_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.022 0 0" size="0.008"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <site name="left_ring_tip" pos="0.022 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.03 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_ring_intermediate" pos="0.015 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="left_ring_tip" pos="0.03 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
 
-                          <!-- Pinky (2 DOF; visual meshes not provided in assets, capsules only) -->
+                          <!-- Pinky (2 DOF) -->
                           <body name="left_pinky_base" pos="0.075 -0.022 0.0">
                             <joint name="left_hand_pinky_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.026 0 0" size="0.008"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <body name="left_pinky_mid" pos="0.026 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.035 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_pinky_proximal" pos="0.017 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="left_pinky_mid" pos="0.035 0 0">
                               <joint name="left_hand_pinky_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.020 0 0" size="0.0075"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <site name="left_pinky_tip" pos="0.020 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.007" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_pinky_intermediate" pos="0.014 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="left_pinky_tip" pos="0.028 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
                           <!-- ========= END LEFT HAND ========= -->
@@ -318,35 +331,39 @@
                           <joint name="right_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.61443 1.61443" damping="6"/>
                           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="right_wrist_yaw_link"/>
 
-                          <!-- RIGHT regular palm + site -->
-                          <geom type="mesh" mesh="right_hand_palm_link" pos="0.07 0 0"
+                          <!-- RIGHT PALM collision (bit 1) -->
+                          <!-- RIGHT: Inspire FTX hand (12-DOF) with H1 visual meshes -->
+                          <geom name="right_palm_collision" type="box" size="0.03 0.025 0.008"
+                                pos="0.07 0 0" mass="0.15" friction="1.0 0.01 0.0001"
+                                contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                          <geom type="mesh" mesh="h1_hand_base" pos="0.07 0 0"
                                 rgba="0.8 0.8 0.8 1" contype="0" conaffinity="0" density="0"/>
                           <site name="palm_site_right" pos="0.07 0 0" size="0.005" type="sphere" rgba="1 0.2 0.2 1"/>
 
-                          <!-- Thumb (axes flipped on right) -->
+                          <!-- Thumb: axes flipped on right hand -->
                           <body name="right_thumb_base" pos="0.055 -0.025 0.0">
-                            <joint name="right_hand_thumb_0_joint" axis="0 -1 0" range="-0.8 0.8"  damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.020 0 0" size="0.010"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <geom  type="mesh" mesh="right_hand_thumb_0_link" pos="0.01 0 0" rgba="0.85 0.85 0.85 1"
-                                   contype="0" conaffinity="0" density="0"/>
-                            <body name="right_thumb_cmc" pos="0.02 0 0">
+                            <joint name="right_hand_thumb_0_joint" axis="0 -1 0" range="-0.8 0.8" damping="0.05" armature="0.002" stiffness="0"/>
+                            <body name="right_thumb_cmc" pos="0 0 0">
                               <joint name="right_hand_thumb_1_joint" axis="0 0 -1" range="0 1.2"  damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.025 0 0" size="0.009"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <geom  type="mesh" mesh="right_hand_thumb_1_link" pos="0.0125 0 0" rgba="0.85 0.85 0.85 1"
-                                     contype="0" conaffinity="0" density="0"/>
-                              <body name="right_thumb_mcp" pos="0.025 0 0">
+                              <geom  type="capsule" fromto="0 0 0  0.035 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_thumb_prox_base" pos="0.0175 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <body name="right_thumb_mcp" pos="0.035 0 0">
                                 <joint name="right_hand_thumb_2_joint" axis="0 0 -1" range="0 1.2" damping="0.05" armature="0.002" stiffness="0"/>
-                                <geom  type="capsule" fromto="0 0 0  0.022 0 0"  size="0.0085"
-                                       rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                                <geom  type="mesh" mesh="right_hand_thumb_2_link" pos="0.011 0 0" rgba="0.85 0.85 0.85 1"
-                                       contype="0" conaffinity="0" density="0"/>
-                                <body name="right_thumb_ip" pos="0.022 0 0">
+                                <geom  type="capsule" fromto="0 0 0  0.03 0 0"  size="0.008" rgba="0.8 0.8 0.8 1"
+                                      density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                                <geom  type="mesh" mesh="h1_thumb_proximal" pos="0.015 0 0" rgba="0.9 0.9 0.9 1"
+                                      contype="0" conaffinity="0" density="0"/>
+                                <body name="right_thumb_ip" pos="0.03 0 0">
                                   <joint name="right_hand_thumb_3_joint" axis="0 0 -1" range="0 1.2" damping="0.05" armature="0.002" stiffness="0"/>
-                                  <geom  type="capsule" fromto="0 0 0  0.020 0 0" size="0.008"
-                                         rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                                  <site name="right_thumb_tip" pos="0.020 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                                  <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                        density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                                  <geom  type="mesh" mesh="h1_thumb_intermediate" pos="0.014 0 0" rgba="0.9 0.9 0.9 1"
+                                        contype="0" conaffinity="0" density="0"/>
+                                  <site name="right_thumb_tip" pos="0.028 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                                  <geom  type="mesh" mesh="h1_thumb_distal" pos="0.022 0 0" rgba="0.9 0.9 0.9 1"
+                                        contype="0" conaffinity="0" density="0"/>
                                 </body>
                               </body>
                             </body>
@@ -355,60 +372,68 @@
                           <!-- Index (2 DOF) -->
                           <body name="right_index_base" pos="0.075 -0.02 0.0">
                             <joint name="right_hand_index_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.009"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <geom  type="mesh" mesh="right_hand_index_0_link" pos="0.014 0 0" rgba="0.85 0.85 0.85 1"
-                                   contype="0" conaffinity="0" density="0"/>
-                            <body name="right_index_mid" pos="0.028 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.04 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_index_proximal" pos="0.02 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="right_index_mid" pos="0.04 0 0">
                               <joint name="right_hand_index_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.022 0 0" size="0.008"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <geom  type="mesh" mesh="right_hand_index_1_link" pos="0.011 0 0" rgba="0.85 0.85 0.85 1"
-                                     contype="0" conaffinity="0" density="0"/>
-                              <site name="right_index_tip" pos="0.022 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.03 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_index_intermediate" pos="0.015 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="right_index_tip" pos="0.03 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
 
                           <!-- Middle (2 DOF) -->
                           <body name="right_middle_base" pos="0.075 -0.006 0.0">
                             <joint name="right_hand_middle_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.030 0 0" size="0.009"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <geom  type="mesh" mesh="right_hand_middle_0_link" pos="0.015 0 0" rgba="0.85 0.85 0.85 1"
-                                   contype="0" conaffinity="0" density="0"/>
-                            <body name="right_middle_mid" pos="0.030 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.042 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_middle_proximal" pos="0.021 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="right_middle_mid" pos="0.042 0 0">
                               <joint name="right_hand_middle_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.024 0 0" size="0.008"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <geom  type="mesh" mesh="right_hand_middle_1_link" pos="0.012 0 0" rgba="0.85 0.85 0.85 1"
-                                     contype="0" conaffinity="0" density="0"/>
-                              <site name="right_middle_tip" pos="0.024 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.032 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_middle_intermediate" pos="0.016 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="right_middle_tip" pos="0.032 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
 
-                          <!-- Ring (2 DOF; capsules only) -->
+                          <!-- Ring (2 DOF) -->
                           <body name="right_ring_base" pos="0.075 0.008 0.0">
                             <joint name="right_hand_ring_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.0085"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <body name="right_ring_mid" pos="0.028 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.04 0 0" size="0.008" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_ring_proximal" pos="0.02 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="right_ring_mid" pos="0.04 0 0">
                               <joint name="right_hand_ring_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.022 0 0" size="0.008"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <site name="right_ring_tip" pos="0.022 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.03 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_ring_intermediate" pos="0.015 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="right_ring_tip" pos="0.03 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
 
-                          <!-- Pinky (2 DOF; capsules only) -->
+                          <!-- Pinky (2 DOF) -->
                           <body name="right_pinky_base" pos="0.075 0.022 0.0">
                             <joint name="right_hand_pinky_0_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                            <geom  type="capsule" fromto="0 0 0  0.026 0 0" size="0.008"
-                                   rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                            <body name="right_pinky_mid" pos="0.026 0 0">
+                            <geom  type="capsule" fromto="0 0 0  0.035 0 0" size="0.0075" rgba="0.8 0.8 0.8 1"
+                                  density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                            <geom  type="mesh" mesh="h1_pinky_proximal" pos="0.017 0 0" rgba="0.9 0.9 0.9 1"
+                                  contype="0" conaffinity="0" density="0"/>
+                            <body name="right_pinky_mid" pos="0.035 0 0">
                               <joint name="right_hand_pinky_1_joint" axis="0 0 1" range="0 1.4" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom  type="capsule" fromto="0 0 0  0.020 0 0" size="0.0075"
-                                     rgba="0.8 0.8 0.8 1" density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1"/>
-                              <site name="right_pinky_tip" pos="0.020 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
+                              <geom  type="capsule" fromto="0 0 0  0.028 0 0" size="0.007" rgba="0.8 0.8 0.8 1"
+                                    density="800" friction="2.0 0.01 0.001" contype="1" conaffinity="1" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                              <geom  type="mesh" mesh="h1_pinky_intermediate" pos="0.014 0 0" rgba="0.9 0.9 0.9 1"
+                                    contype="0" conaffinity="0" density="0"/>
+                              <site name="right_pinky_tip" pos="0.028 0 0" size="0.004" type="sphere" rgba="0.2 0.8 0.2 1"/>
                             </body>
                           </body>
                           <!-- ========= END RIGHT HAND ========= -->
