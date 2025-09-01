@@ -7,6 +7,7 @@ from gymnasium import spaces
 import mujoco
 from mujoco import MjModel, MjData
 
+# Optional viewer (MuJoCo >= 2.3.3/2.3.5)
 try:
     import mujoco.viewer  # noqa: F401
     HAVE_MJ_VIEWER = True
@@ -15,12 +16,22 @@ except Exception:
 
 
 def _site_quat(data, sid):
+    """Get site quaternion across MuJoCo versions (xquat newer, xmat→quat fallback)."""
     if hasattr(data, "site_xquat"):
         return data.site_xquat[sid].copy()
     R = data.site_xmat[sid].reshape(3, 3)
     q = np.empty(4, dtype=np.float64)
     mujoco.mju_mat2Quat(q, R.ravel())
     return q
+
+
+def _all_actuator_names(model):
+    names = []
+    for i in range(model.nu):
+        nm = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+        if nm is not None:
+            names.append(nm)
+    return names
 
 
 def find_actuators_by_name(model, names_wanted):
@@ -42,13 +53,18 @@ def named_site_id(model, name):
 
 
 class G1InspireCanGrasp(gym.Env):
+    """
+    RL env that controls only the hand actuators.
+    Works with both 'legacy' and Inspire FTP (5-finger, 12-DOF) scenes if actuator
+    names follow the side prefix convention: left_hand_*, right_hand_*.
+    """
     metadata = {"render_modes": ["human", "none"]}
 
     def __init__(self,
                  scene_xml_path,
                  render_mode="none",
                  hand="right",
-                 hand_names=None,
+                 hand_names=None,        # optional explicit list of actuator names
                  max_steps=400,
                  target_lift=0.03,
                  randomize_init=True):
@@ -66,26 +82,49 @@ class G1InspireCanGrasp(gym.Env):
         self.randomize_init = randomize_init
         self.step_count = 0
 
-        # Hand actuator names
-        if hand_names is None:
-            if hand.lower().startswith("r"):
-                hand_names = [
-                    "right_hand_thumb_0_joint","right_hand_thumb_1_joint","right_hand_thumb_2_joint",
-                    "right_hand_index_0_joint","right_hand_index_1_joint",
-                    "right_hand_middle_0_joint","right_hand_middle_1_joint"
-                ]
-            else:
-                hand_names = [
-                    "left_hand_thumb_0_joint","left_hand_thumb_1_joint","left_hand_thumb_2_joint",
-                    "left_hand_index_0_joint","left_hand_index_1_joint",
-                    "left_hand_middle_0_joint","left_hand_middle_1_joint"
-                ]
+        # --------- Select hand actuators ----------
+        side = "right" if hand.lower().startswith("r") else "left"
 
-        self.hand_actuator_ids = find_actuators_by_name(self.model, hand_names)
+        # If user passed explicit names, use them; otherwise auto-detect, then fallback.
+        if hand_names is not None:
+            candidate_names = list(hand_names)
+        else:
+            # auto: everything starting with "<side>_hand_"
+            all_names = _all_actuator_names(self.model)
+            candidate_names = [n for n in all_names if n.startswith(f"{side}_hand_")]
+            candidate_names.sort()
+
+            # If auto-detect found nothing, fallback to known sets (Inspire FTP 12-DOF)
+            if not candidate_names:
+                if side == "right":
+                    candidate_names = [
+                        "right_hand_thumb_0_joint","right_hand_thumb_1_joint",
+                        "right_hand_thumb_2_joint","right_hand_thumb_3_joint",
+                        "right_hand_index_0_joint","right_hand_index_1_joint",
+                        "right_hand_middle_0_joint","right_hand_middle_1_joint",
+                        "right_hand_ring_0_joint","right_hand_ring_1_joint",
+                        "right_hand_pinky_0_joint","right_hand_pinky_1_joint",
+                    ]
+                else:
+                    candidate_names = [
+                        "left_hand_thumb_0_joint","left_hand_thumb_1_joint",
+                        "left_hand_thumb_2_joint","left_hand_thumb_3_joint",
+                        "left_hand_index_0_joint","left_hand_index_1_joint",
+                        "left_hand_middle_0_joint","left_hand_middle_1_joint",
+                        "left_hand_ring_0_joint","left_hand_ring_1_joint",
+                        "left_hand_pinky_0_joint","left_hand_pinky_1_joint",
+                    ]
+
+        self.hand_actuator_ids = find_actuators_by_name(self.model, candidate_names)
         if len(self.hand_actuator_ids) == 0:
-            raise RuntimeError(f"No actuators found for names {hand_names}.")
+            # Helpful error printout with available names
+            avail = _all_actuator_names(self.model)
+            raise RuntimeError(
+                f"No actuators found for names: {candidate_names}\n"
+                f"Available actuators: {avail}"
+            )
 
-        # Map actuators → joints
+        # Map actuators → joints (one joint per actuator expected)
         self.act_to_joint = np.array(
             [int(self.model.actuator_trnid[a, 0]) for a in self.hand_actuator_ids],
             dtype=int
@@ -94,33 +133,37 @@ class G1InspireCanGrasp(gym.Env):
         self.jnt_dofadr  = self.model.jnt_dofadr[self.act_to_joint]
         self.jnt_range   = self.model.jnt_range[self.act_to_joint].copy()
 
-        # PD gains + torque limits
+        # PD gains + torque limits (soft clamp)
         self.kp = np.full(len(self.hand_actuator_ids), 20.0, dtype=np.float64)
         self.kd = np.full(len(self.hand_actuator_ids), 1.0, dtype=np.float64)
+
         self.hand_actuator_names = [
             mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, a)
             for a in self.hand_actuator_ids
         ]
         self.torque_limit = np.minimum(
-            np.array([2.45 if ("thumb_0" in n) else 1.4 for n in self.hand_actuator_names], dtype=np.float64),
+            np.array([2.45 if ("thumb_0" in n) else 1.4 for n in self.hand_actuator_names],
+                     dtype=np.float64),
             1.0
         )
 
-        # Action scaling
+        # Action scaling and action space
         self.action_scale = 0.03
         self.des_q = self.data.qpos[self.jnt_qposadr].copy()
         self.action_space = spaces.Box(-1.0, 1.0,
                                        shape=(len(self.hand_actuator_ids),),
                                        dtype=np.float32)
 
-        # Observation space
+        # Observation space: qpos, qvel, can pose (pos+quat), relative palm->can
         self.can_sid = named_site_id(self.model, "can_site")
+        # If can is kinematic (no free joint), we won't randomize or lift it
         try:
             j = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
             self.can_free_joint = j if j >= 0 else None
         except Exception:
             self.can_free_joint = None
-        palm_name = "palm_site_right" if hand.startswith("r") else "palm_site_left"
+
+        palm_name = "palm_site_right" if side == "right" else "palm_site_left"
         self.palm_sid = named_site_id(self.model, palm_name)
 
         obs_dim = (len(self.jnt_qposadr) * 2) + 3 + 4 + 3
@@ -135,7 +178,6 @@ class G1InspireCanGrasp(gym.Env):
         qpos = self.data.qpos[self.jnt_qposadr].copy()
         qvel = self.data.qvel[self.jnt_dofadr].copy()
         can_pos = self.data.site_xpos[self.can_sid].copy()
-        # can_quat = self.data.site_xquat[self.can_sid].copy()
         can_quat = _site_quat(self.data, self.can_sid)
         palm_pos = self.data.site_xpos[self.palm_sid].copy()
         rel_vec = can_pos - palm_pos
@@ -157,7 +199,7 @@ class G1InspireCanGrasp(gym.Env):
         if self.can_free_joint is None:
             return
         adr = self.model.jnt_qposadr[self.can_free_joint]
-        # Place near palm (adjust as needed)
+        # Place near palm (tweak for your robot)
         x = 0.42 + np.random.uniform(-0.02, 0.02)
         y = -0.03 + np.random.uniform(-0.02, 0.02)
         z = 1.03 + np.random.uniform(-0.02, 0.02)
@@ -239,7 +281,7 @@ class G1InspireCanGrasp(gym.Env):
             return
         if not HAVE_MJ_VIEWER:
             raise RuntimeError(
-                "mujoco.viewer not available. Upgrade MuJoCo (pip install 'mujoco>=2.3.5') "
+                "mujoco.viewer not available. Install/upgrade MuJoCo (e.g., pip install 'mujoco>=2.3.5') "
                 "and ensure MUJOCO_GL=glfw on a machine with a display."
             )
         if self.viewer is None:
