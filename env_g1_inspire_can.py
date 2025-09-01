@@ -67,7 +67,11 @@ class G1InspireCanGrasp(gym.Env):
                  max_steps=400,
                  target_lift=0.03,
                  randomize_init=True,
-                 ik_warm_start=False):   # default False -> arms start calmly at sides
+                 ik_warm_start=False,
+                 control_arm=True):
+        """
+        control_arm=True -> the policy controls the arm joints (same side) + the fingers.
+        """
         super().__init__()
 
         if not os.path.isfile(scene_xml_path):
@@ -81,10 +85,12 @@ class G1InspireCanGrasp(gym.Env):
         self.target_lift = target_lift
         self.randomize_init = randomize_init
         self.ik_warm_start = ik_warm_start
+        self.control_arm = control_arm
         self.step_count = 0
 
-        # Hand actuator names (12-DOF InspireFTX or legacy 3-DOF will still work)
-        if hand.lower().startswith("r"):
+        # ---------------- side selection ----------------
+        right = hand.lower().startswith("r")
+        if right:
             hand_actuator_names = [
                 "right_hand_thumb_0_joint","right_hand_thumb_1_joint","right_hand_thumb_2_joint","right_hand_thumb_3_joint",
                 "right_hand_index_0_joint","right_hand_index_1_joint",
@@ -92,7 +98,7 @@ class G1InspireCanGrasp(gym.Env):
                 "right_hand_ring_0_joint","right_hand_ring_1_joint",
                 "right_hand_pinky_0_joint","right_hand_pinky_1_joint",
             ]
-            # arm joints used by IK (if enabled)
+            # arm joint names = actuator names in XML
             self.arm_joint_names = [
                 "right_shoulder_pitch_joint",
                 "right_shoulder_roll_joint",
@@ -122,40 +128,81 @@ class G1InspireCanGrasp(gym.Env):
             ]
             self.palm_site_name = "palm_site_left"
 
-        # use the names above
+        # ---------------- actuators we control ----------------
         self.hand_actuator_ids = find_actuators_by_name(self.model, hand_actuator_names)
         if len(self.hand_actuator_ids) == 0:
             raise RuntimeError(f"No actuators found for names {hand_actuator_names}. Check XML.")
 
-        # Map actuators → joints
-        self.act_to_joint = np.array(
-            [int(self.model.actuator_trnid[a, 0]) for a in self.hand_actuator_ids],
+        if self.control_arm:
+            arm_actuator_names = self.arm_joint_names  # actuator names == joint names in your XML
+            self.arm_actuator_ids = find_actuators_by_name(self.model, arm_actuator_names)
+            if len(self.arm_actuator_ids) == 0:
+                # If not found, gracefully fall back to hand-only control
+                self.control_arm = False
+                self.arm_actuator_ids = []
+        else:
+            self.arm_actuator_ids = []
+
+        # order: ARM (if any) then HAND
+        self.ctrl_actuator_ids = np.array(self.arm_actuator_ids + self.hand_actuator_ids, dtype=int)
+        self.n_arm = len(self.arm_actuator_ids)
+        self.n_hand = len(self.hand_actuator_ids)
+        self.n_total = len(self.ctrl_actuator_ids)
+
+        # Map actuators → joints (for the ones we control)
+        self.ctrl_to_joint = np.array(
+            [int(self.model.actuator_trnid[a, 0]) for a in self.ctrl_actuator_ids],
             dtype=int
         )
-        self.jnt_qposadr = self.model.jnt_qposadr[self.act_to_joint]
-        self.jnt_dofadr  = self.model.jnt_dofadr[self.act_to_joint]
-        self.jnt_range   = self.model.jnt_range[self.act_to_joint].copy()
+        self.ctrl_jnt_qposadr = self.model.jnt_qposadr[self.ctrl_to_joint]
+        self.ctrl_jnt_dofadr  = self.model.jnt_dofadr[self.ctrl_to_joint]
+        self.ctrl_jnt_range   = self.model.jnt_range[self.ctrl_to_joint].copy()
 
-        # PD gains + torque limits (for fingers)
-        self.kp = np.full(len(self.hand_actuator_ids), 16.0, dtype=np.float64)  # a bit gentler
-        self.kd = np.full(len(self.hand_actuator_ids), 0.8, dtype=np.float64)
-        self.hand_actuator_names = [
-            mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, a)
-            for a in self.hand_actuator_ids
-        ]
-        self.torque_limit = np.minimum(
-            np.array([2.45 if ("thumb_0" in n) else 1.4 for n in self.hand_actuator_names], dtype=np.float64),
-            1.0
-        )
+        # ---------------- PD gains + torque limits ----------------
+        # Hand gains (gentle)
+        kp_hand = 16.0
+        kd_hand = 0.8
+        tl_hand_default = 1.0
+        # Slightly higher limit for "thumb_0"
+        hand_names_all = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, a) for a in self.hand_actuator_ids]
+        hand_tl = np.array([min(2.45 if ("thumb_0" in n) else 1.4, 1.0) for n in hand_names_all], dtype=np.float64)
 
-        # Action scaling (smaller -> slower finger motion)
-        self.action_scale = 0.02
-        self.des_q = self.data.qpos[self.jnt_qposadr].copy()
-        self.action_space = spaces.Box(-1.0, 1.0,
-                                       shape=(len(self.hand_actuator_ids),),
-                                       dtype=np.float32)
+        # Arm gains (slow & stable)
+        kp_arm = 12.0
+        kd_arm = 1.0
+        # Conservative torque caps per joint
+        arm_tl = np.array([12, 10, 10, 8, 5, 5, 5], dtype=np.float64)[:self.n_arm]
 
-        # Observation space
+        # Combine to vectors matching actuator order
+        self.kp_vec = np.concatenate([
+            np.full(self.n_arm,  kp_arm, dtype=np.float64),
+            np.full(self.n_hand, kp_hand, dtype=np.float64)
+        ])
+        self.kd_vec = np.concatenate([
+            np.full(self.n_arm,  kd_arm, dtype=np.float64),
+            np.full(self.n_hand, kd_hand, dtype=np.float64)
+        ])
+        self.torque_limit_vec = np.concatenate([
+            arm_tl,
+            hand_tl
+        ]) if self.n_arm > 0 else hand_tl
+
+        # ---------------- action scaling (per-actuator) ----------------
+        # Small steps so the arm doesn't jerk; fingers even smaller
+        arm_action_scale = 0.02
+        hand_action_scale = 0.02
+        self.action_scale_vec = np.concatenate([
+            np.full(self.n_arm,  arm_action_scale, dtype=np.float64),
+            np.full(self.n_hand, hand_action_scale, dtype=np.float64)
+        ])
+
+        # Desired joint positions (for the joints we control)
+        self.des_q = self.data.qpos[self.ctrl_jnt_qposadr].copy()
+
+        # Action/observation spaces
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(self.n_total,), dtype=np.float32)
+
+        # Observation: (qpos,qvel of all controlled joints) + can pos (3) + can quat (4) + palm→can vec (3)
         self.can_sid = named_site_id(self.model, "can_site")
         try:
             j = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
@@ -164,17 +211,16 @@ class G1InspireCanGrasp(gym.Env):
             self.can_free_joint = None
         self.palm_sid = named_site_id(self.model, self.palm_site_name)
 
-        obs_dim = (len(self.jnt_qposadr) * 2) + 3 + 4 + 3
-        self.observation_space = spaces.Box(-np.inf, np.inf,
-                                            shape=(obs_dim,), dtype=np.float32)
+        obs_dim = (len(self.ctrl_jnt_qposadr) * 2) + 3 + 4 + 3
+        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(obs_dim,), dtype=np.float32)
 
         self.viewer = None
 
     # ---------------- utils ----------------
     def _get_obs(self):
         mujoco.mj_forward(self.model, self.data)
-        qpos = self.data.qpos[self.jnt_qposadr].copy()
-        qvel = self.data.qvel[self.jnt_dofadr].copy()
+        qpos = self.data.qpos[self.ctrl_jnt_qposadr].copy()
+        qvel = self.data.qvel[self.ctrl_jnt_dofadr].copy()
         can_pos = self.data.site_xpos[self.can_sid].copy()
         can_quat = _site_quat(self.data, self.can_sid)
         palm_pos = self.data.site_xpos[self.palm_sid].copy()
@@ -183,14 +229,18 @@ class G1InspireCanGrasp(gym.Env):
 
     def _apply_action(self, action):
         action = np.clip(action.astype(np.float64), -1.0, 1.0)
-        self.des_q = np.clip(self.des_q + self.action_scale * action,
-                             self.jnt_range[:, 0], self.jnt_range[:, 1])
-        q  = self.data.qpos[self.jnt_qposadr].astype(np.float64)
-        qd = self.data.qvel[self.jnt_dofadr].astype(np.float64)
-        tau = self.kp * (self.des_q - q) - self.kd * qd
-        tau = np.clip(tau, -self.torque_limit, self.torque_limit)
+        # Per-joint incremental position target
+        self.des_q = np.clip(
+            self.des_q + (self.action_scale_vec * action),
+            self.ctrl_jnt_range[:, 0], self.ctrl_jnt_range[:, 1]
+        )
+        q  = self.data.qpos[self.ctrl_jnt_qposadr].astype(np.float64)
+        qd = self.data.qvel[self.ctrl_jnt_dofadr].astype(np.float64)
+        tau = self.kp_vec * (self.des_q - q) - self.kd_vec * qd
+        tau = np.clip(tau, -self.torque_limit_vec, self.torque_limit_vec)
+        # zero everything, then write only what we control
         self.data.ctrl[:] = 0.0
-        self.data.ctrl[self.hand_actuator_ids] = tau
+        self.data.ctrl[self.ctrl_actuator_ids] = tau
 
     def _randomize(self):
         if self.can_free_joint is None:
@@ -213,10 +263,10 @@ class G1InspireCanGrasp(gym.Env):
     def _set_safe_arm_pose(self, hand_side):
         """Arms-down pose beside torso, neutral wrists. Gentle finger curl."""
         if hand_side == "left":
-            _set_joint_if_exists(self.model, self.data, "left_shoulder_pitch_joint", -0.10)  # slight forward
-            _set_joint_if_exists(self.model, self.data, "left_shoulder_roll_joint",   0.20)  # outwards
+            _set_joint_if_exists(self.model, self.data, "left_shoulder_pitch_joint", -0.10)
+            _set_joint_if_exists(self.model, self.data, "left_shoulder_roll_joint",   0.20)
             _set_joint_if_exists(self.model, self.data, "left_shoulder_yaw_joint",    0.00)
-            _set_joint_if_exists(self.model, self.data, "left_elbow_joint",           0.30)  # slight bend
+            _set_joint_if_exists(self.model, self.data, "left_elbow_joint",           0.30)
             _set_joint_if_exists(self.model, self.data, "left_wrist_roll_joint",      0.00)
             _set_joint_if_exists(self.model, self.data, "left_wrist_pitch_joint",     0.00)
             _set_joint_if_exists(self.model, self.data, "left_wrist_yaw_joint",       0.00)
@@ -242,20 +292,13 @@ class G1InspireCanGrasp(gym.Env):
             for jn, v in vals.items():
                 _set_joint_if_exists(self.model, self.data, jn, v)
 
-    def _ik_palm_to_can(self, target_offset=np.array([-0.06, 0.0, 0.02]), iters=15, damping=1e-2):
-        """
-        Tiny damped-least-squares IK to bring palm near the can at reset.
-        target_offset is expressed in WORLD frame relative to can_site.
-        """
+    def _ik_palm_to_can(self, target_offset=np.array([-0.06, 0.0, 0.02]), iters=12, damping=1e-2):
+        """Small damped-least-squares IK to gently bring the palm near the can (optional)."""
         j_ids = _joint_ids(self.model, self.arm_joint_names)
         if not j_ids:
             return
 
-        dof_ids = []
-        for j in j_ids:
-            dof_ids.append(self.model.jnt_dofadr[j])
-        dof_ids = np.array(dof_ids, dtype=int)
-
+        dof_ids = np.array([self.model.jnt_dofadr[j] for j in j_ids], dtype=int)
         jacp = np.zeros((3, self.model.nv), dtype=np.float64)
         jacr = np.zeros((3, self.model.nv), dtype=np.float64)
 
@@ -276,11 +319,10 @@ class G1InspireCanGrasp(gym.Env):
             A = JJt + (damping ** 2) * np.eye(3)
             dq = J.T @ np.linalg.solve(A, err)
 
-            # smaller steps than before to avoid big swings
             for k, j in enumerate(j_ids):
                 adr = self.model.jnt_qposadr[j]
                 lo, hi = self.model.jnt_range[j]
-                self.data.qpos[adr] = np.clip(self.data.qpos[adr] + 0.25 * dq[k], lo, hi)
+                self.data.qpos[adr] = np.clip(self.data.qpos[adr] + 0.20 * dq[k], lo, hi)
 
         mujoco.mj_forward(self.model, self.data)
 
@@ -293,13 +335,13 @@ class G1InspireCanGrasp(gym.Env):
         side = "right" if self.palm_site_name.endswith("right") else "left"
         self._set_safe_arm_pose(side)
 
-        # Optional IK warm start (OFF by default now)
-        if self.ik_warm_start:
+        # Optional IK warm start (OFF by default)
+        if self.ik_warm_start and self.control_arm:
             default_offset = np.array([-0.08, 0.0, 0.03])
-            self._ik_palm_to_can(target_offset=default_offset, iters=15, damping=1e-2)
+            self._ik_palm_to_can(target_offset=default_offset, iters=12, damping=1e-2)
 
-        # initialize PD target to current finger angles
-        self.des_q = self.data.qpos[self.jnt_qposadr].copy()
+        # initialize PD target to current angles (for all controlled joints)
+        self.des_q = self.data.qpos[self.ctrl_jnt_qposadr].copy()
 
         if self.randomize_init:
             self._randomize()
@@ -339,7 +381,7 @@ class G1InspireCanGrasp(gym.Env):
                     touched = True
                     touch_bonus += 0.005
 
-        ctrl_penalty = 1e-3 * float(np.sum(self.data.ctrl[self.hand_actuator_ids] ** 2))
+        ctrl_penalty = 1e-3 * float(np.sum(self.data.ctrl[self.ctrl_actuator_ids] ** 2))
 
         height_bonus = 0.0
         if self.can_free_joint is not None:
