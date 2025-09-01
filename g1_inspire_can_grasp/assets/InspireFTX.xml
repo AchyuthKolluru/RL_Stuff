@@ -9,15 +9,18 @@
   <default>
     <default class="digit">
       <joint damping="0.05" armature="0.002" stiffness="0"/>
+      <!-- Explicitly enable collisions -->
       <geom type="capsule" size="0.008" rgba="0.8 0.8 0.8 1" density="800"
-            friction="1.2 0.01 0.0001"/>
+            friction="1.2 0.01 0.0001" contype="1" conaffinity="1"/>
     </default>
     <default class="palm">
-      <geom type="box" rgba="0.7 0.7 0.7 1" friction="1.0 0.01 0.0001"/>
+      <!-- Palm is collidable too -->
+      <geom type="box" rgba="0.7 0.7 0.7 1" friction="1.0 0.01 0.0001"
+            contype="1" conaffinity="1"/>
     </default>
   </default>
 
-  <!-- Mesh assets (unchanged, kept for the rest of the body) -->
+  <!-- Mesh assets for the body (unchanged) -->
   <asset>
     <mesh name="pelvis" file="pelvis.STL"/>
     <mesh name="pelvis_contour_link" file="pelvis_contour_link.STL"/>
@@ -45,8 +48,7 @@
     <mesh name="left_wrist_roll_link" file="left_wrist_roll_link.STL"/>
     <mesh name="left_wrist_pitch_link" file="left_wrist_pitch_link.STL"/>
     <mesh name="left_wrist_yaw_link" file="left_wrist_yaw_link.STL"/>
-
-    <!-- old hand meshes retained but NOT used below -->
+    <!-- old left hand meshes retained but NOT used below -->
     <mesh name="left_hand_palm_link" file="left_hand_palm_link.STL"/>
     <mesh name="left_hand_thumb_0_link" file="left_hand_thumb_0_link.STL"/>
     <mesh name="left_hand_thumb_1_link" file="left_hand_thumb_1_link.STL"/>
@@ -63,7 +65,6 @@
     <mesh name="right_wrist_roll_link" file="right_wrist_roll_link.STL"/>
     <mesh name="right_wrist_pitch_link" file="right_wrist_pitch_link.STL"/>
     <mesh name="right_wrist_yaw_link" file="right_wrist_yaw_link.STL"/>
-
     <!-- old right hand meshes retained but NOT used below -->
     <mesh name="right_hand_palm_link" file="right_hand_palm_link.STL"/>
     <mesh name="right_hand_thumb_0_link" file="right_hand_thumb_0_link.STL"/>
@@ -95,29 +96,35 @@
     <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
 
+    <!-- world anchor for hard weld -->
+    <body name="world_anchor"/>
+
     <!-- ===== Static training can (with site expected by env) ===== -->
     <body name="can_body" pos="0.42 -0.03 1.03">
-      <!-- Make it collidable but fixed to world (no joint). -->
       <geom name="can_geom" type="cylinder" size="0.03 0.06"
             rgba="0.9 0.6 0.2 1" friction="1.0 0.005 0.0001"
             contype="1" conaffinity="1"/>
       <site name="can_site" pos="0 0 0" size="0.005" type="sphere" rgba="0.2 0.8 0.2 1"/>
-      <!-- For a dynamic can later, uncomment the next line:
+      <!-- For a dynamic can later, uncomment:
       <joint name="can_free" type="free"/>
       -->
     </body>
-    <!-- ========================================================== -->
 
     <body name="pelvis" pos="0 0 0.793">
       <inertial pos="0 0 -0.07605" quat="1 0 -0.000399148 0" mass="3.813"
                 diaginertia="0.010549 0.0093089 0.0079184"/>
-      <!-- fixed base for grasp task -->
-      <!-- <joint name="floating_base_joint" type="free" limited="false"/> -->
+      <!-- Keep base fixed (no free joint) -->
 
+      <!-- original meshes are non-colliding (contype=0) -->
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1" mesh="pelvis"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="pelvis_contour_link"/>
       <geom type="mesh" rgba="0.7 0.7 0.7 1" mesh="pelvis_contour_link"/>
       <site name="imu_in_pelvis" size="0.01" pos="0.04525 0 -0.08339"/>
+
+      <!-- Add a simple lap/torso collision "guard" so hands can't pass through legs -->
+      <geom name="lap_collision" type="box" size="0.11 0.13 0.10"
+            pos="0.02 0.00 -0.03" rgba="0.1 0.3 0.8 0.05"
+            density="0" contype="1" conaffinity="1"/>
 
       <!-- LEFT LEG (locked) -->
       <body name="left_hip_pitch_link" pos="0 0.064452 -0.1027">
@@ -183,7 +190,6 @@
         </body>
       </body>
 
-      <!-- Waist & torso (waist locked; torso free only via arms) -->
       <body name="waist_yaw_link">
         <inertial pos="0.003494 0.000233 0.018034" quat="0.289697 0.591001 -0.337795 0.672821" mass="0.214" diaginertia="0.000163531 0.000107714 0.000102205"/>
         <joint name="waist_yaw_joint" pos="0 0 0" axis="0 0 1" range="0 0" damping="50"/>
@@ -195,14 +201,20 @@
           <body name="torso_link">
             <inertial pos="0.00203158 0.000339683 0.184568" quat="0.999803 -6.03319e-05 0.0198256 0.00131986" mass="7.818" diaginertia="0.121847 0.109825 0.0273735"/>
             <joint name="waist_pitch_joint" pos="0 0 0" axis="0 1 0" range="0 0" damping="50"/>
+            <!-- original torso visuals (no collision) -->
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="torso_link"/>
             <geom type="mesh" rgba="0.7 0.7 0.7 1" mesh="torso_link"/>
             <geom pos="0.0039635 0 -0.044" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1" mesh="logo_link"/>
             <geom pos="0.0039635 0 -0.044" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1" mesh="head_link"/>
             <site name="imu_in_torso" size="0.01" pos="-0.03959 -0.00224 0.14792"/>
 
+            <!-- Add a *lightweight* torso collision box in front -->
+            <geom name="torso_collision" type="box" size="0.10 0.12 0.14"
+                  pos="0.10 0.00 0.12" rgba="0.1 0.7 0.1 0.05"
+                  density="0" contype="1" conaffinity="1"/>
+
             <!-- ================= LEFT ARM ================= -->
-            <body name="left_shoulder_pitch_link" pos="0.0039563 0.10022 0.24778" quat="0.990264 0.139201 1.38722e-05 -9.86868e-05">
+            <body name="left_shoulder_pitch_link" pos="0.0039563 0.10022 0.24778" quat="0.990264 0.139201 0 -0">
               <inertial pos="0 0.035892 -0.011628" quat="0.654152 0.0130458 -0.326267 0.68225" mass="0.718" diaginertia="0.000465864 0.000432842 0.000406394"/>
               <joint name="left_shoulder_pitch_joint" pos="0 0 0" axis="0 1 0" range="-3.0892 2.6704" damping="2"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="left_shoulder_pitch_link"/>
@@ -313,7 +325,7 @@
             </body>
 
             <!-- ================= RIGHT ARM ================= -->
-            <body name="right_shoulder_pitch_link" pos="0.0039563 -0.10021 0.24778" quat="0.990264 -0.139201 1.38722e-05 9.86868e-05">
+            <body name="right_shoulder_pitch_link" pos="0.0039563 -0.10021 0.24778" quat="0.990264 -0.139201 0 0">
               <inertial pos="0 -0.035892 -0.011628" quat="0.68225 -0.326267 0.0130458 0.654152" mass="0.718" diaginertia="0.000465864 0.000432842 0.000406394"/>
               <joint name="right_shoulder_pitch_joint" pos="0 0 0" axis="0 1 0" range="-3.0892 2.6704" damping="2"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="right_shoulder_pitch_link"/>
@@ -428,6 +440,11 @@
       </body>
     </body>
   </worldbody>
+
+  <!-- Hard weld to world to guarantee ZERO torso drift -->
+  <equality>
+    <weld body1="pelvis" body2="world_anchor" solref="0.002 1" solimp="0.9 0.95 0.001"/>
+  </equality>
 
   <!-- Actuators: arms + both 12-DOF hands (legs/waist omitted => locked) -->
   <actuator>
