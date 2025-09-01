@@ -183,7 +183,10 @@
                           <site name="palm_site_left" pos="0.07 0 0" size="0.005" type="sphere" rgba="1 0.2 0.2 1"/>
 
                           <!-- Thumb: ab/adduction + 3x flex -->
+                          <!-- LEFT THUMB -->
                           <body name="left_thumb_base" pos="0.055 0.025 0.0">
+                            <!-- NEW: give this body a small mass so its joint is valid -->
+                            <inertial mass="0.005" pos="0 0 0" diaginertia="1e-6 1e-6 1e-6"/>
                             <joint name="left_hand_thumb_0_joint" axis="0 1 0" range="-0.8 0.8"  damping="0.05" armature="0.002" stiffness="0"/>
                             <body name="left_thumb_cmc" pos="0 0 0">
                               <joint name="left_hand_thumb_1_joint" axis="0 0 1" range="0 1.2"    damping="0.05" armature="0.002" stiffness="0"/>
@@ -341,7 +344,10 @@
                           <site name="palm_site_right" pos="0.07 0 0" size="0.005" type="sphere" rgba="1 0.2 0.2 1"/>
 
                           <!-- Thumb: axes flipped on right hand -->
+                          <!-- RIGHT THUMB -->
                           <body name="right_thumb_base" pos="0.055 -0.025 0.0">
+                            <!-- NEW: give this body a small mass so its joint is valid -->
+                            <inertial mass="0.005" pos="0 0 0" diaginertia="1e-6 1e-6 1e-6"/>
                             <joint name="right_hand_thumb_0_joint" axis="0 -1 0" range="-0.8 0.8" damping="0.05" armature="0.002" stiffness="0"/>
                             <body name="right_thumb_cmc" pos="0 0 0">
                               <joint name="right_hand_thumb_1_joint" axis="0 0 -1" range="0 1.2"  damping="0.05" armature="0.002" stiffness="0"/>
