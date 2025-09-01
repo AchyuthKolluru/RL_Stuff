@@ -221,14 +221,19 @@
 
                           <!-- Thumb (ab/adduction + 3x flex) -->
                           <body name="left_thumb_base" pos="0.055 0.025 0.0">
+                            <!-- explicit inertia (no geoms in this body) -->
+                            <inertial pos="0 0 0" mass="0.02" diaginertia="2e-5 2e-5 2e-5"/>
                             <joint class="digit" name="left_hand_thumb_0_joint" axis="0 1 0" range="-0.8 0.8"/>
                             <body name="left_thumb_cmc" pos="0 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="left_hand_thumb_1_joint" axis="0 0 1" range="0 1.2"/>
                               <geom  class="digit" fromto="0 0 0  0.035 0 0"/>
                               <body name="left_thumb_mcp" pos="0.035 0 0">
+                                <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                                 <joint class="digit" name="left_hand_thumb_2_joint" axis="0 0 1" range="0 1.2"/>
                                 <geom  class="digit" fromto="0 0 0  0.03 0 0"/>
                                 <body name="left_thumb_ip" pos="0.03 0 0">
+                                  <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                                   <joint class="digit" name="left_hand_thumb_3_joint" axis="0 0 1" range="0 1.2"/>
                                   <geom  class="digit" fromto="0 0 0  0.028 0 0"/>
                                 </body>
@@ -238,9 +243,11 @@
 
                           <!-- Index (2 DOF) -->
                           <body name="left_index_base" pos="0.075 0.02 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="left_hand_index_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.04 0 0"/>
                             <body name="left_index_mid" pos="0.04 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="left_hand_index_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.03 0 0"/>
                             </body>
@@ -248,9 +255,11 @@
 
                           <!-- Middle (2 DOF) -->
                           <body name="left_middle_base" pos="0.075 0.006 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="left_hand_middle_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.042 0 0"/>
                             <body name="left_middle_mid" pos="0.042 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="left_hand_middle_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.032 0 0"/>
                             </body>
@@ -258,9 +267,11 @@
 
                           <!-- Ring (2 DOF) -->
                           <body name="left_ring_base" pos="0.075 -0.008 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="left_hand_ring_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.04 0 0"/>
                             <body name="left_ring_mid" pos="0.04 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="left_hand_ring_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.03 0 0"/>
                             </body>
@@ -268,9 +279,11 @@
 
                           <!-- Pinky (2 DOF) -->
                           <body name="left_pinky_base" pos="0.075 -0.022 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="left_hand_pinky_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.035 0 0"/>
                             <body name="left_pinky_mid" pos="0.035 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="left_hand_pinky_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.028 0 0"/>
                             </body>
@@ -320,14 +333,19 @@
 
                           <!-- Thumb (ab/adduction + 3x flex) -->
                           <body name="right_thumb_base" pos="0.055 -0.025 0.0">
+                            <!-- explicit inertia (no geoms in this body) -->
+                            <inertial pos="0 0 0" mass="0.02" diaginertia="2e-5 2e-5 2e-5"/>
                             <joint class="digit" name="right_hand_thumb_0_joint" axis="0 1 0" range="-0.8 0.8"/>
                             <body name="right_thumb_cmc" pos="0 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="right_hand_thumb_1_joint" axis="0 0 1" range="0 1.2"/>
                               <geom  class="digit" fromto="0 0 0  0.035 0 0"/>
                               <body name="right_thumb_mcp" pos="0.035 0 0">
+                                <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                                 <joint class="digit" name="right_hand_thumb_2_joint" axis="0 0 1" range="0 1.2"/>
                                 <geom  class="digit" fromto="0 0 0  0.03 0 0"/>
                                 <body name="right_thumb_ip" pos="0.03 0 0">
+                                  <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                                   <joint class="digit" name="right_hand_thumb_3_joint" axis="0 0 1" range="0 1.2"/>
                                   <geom  class="digit" fromto="0 0 0  0.028 0 0"/>
                                 </body>
@@ -337,9 +355,11 @@
 
                           <!-- Index (2 DOF) -->
                           <body name="right_index_base" pos="0.075 -0.02 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="right_hand_index_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.04 0 0"/>
                             <body name="right_index_mid" pos="0.04 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="right_hand_index_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.03 0 0"/>
                             </body>
@@ -347,9 +367,11 @@
 
                           <!-- Middle (2 DOF) -->
                           <body name="right_middle_base" pos="0.075 -0.006 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="right_hand_middle_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.042 0 0"/>
                             <body name="right_middle_mid" pos="0.042 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="right_hand_middle_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.032 0 0"/>
                             </body>
@@ -357,9 +379,11 @@
 
                           <!-- Ring (2 DOF) -->
                           <body name="right_ring_base" pos="0.075 0.008 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="right_hand_ring_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.04 0 0"/>
                             <body name="right_ring_mid" pos="0.04 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="right_hand_ring_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.03 0 0"/>
                             </body>
@@ -367,9 +391,11 @@
 
                           <!-- Pinky (2 DOF) -->
                           <body name="right_pinky_base" pos="0.075 0.022 0.0">
+                            <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                             <joint class="digit" name="right_hand_pinky_0_joint" axis="0 0 1" range="0 1.4"/>
                             <geom  class="digit" fromto="0 0 0  0.035 0 0"/>
                             <body name="right_pinky_mid" pos="0.035 0 0">
+                              <inertial pos="0 0 0" mass="0.005" diaginertia="5e-6 5e-6 5e-6"/>
                               <joint class="digit" name="right_hand_pinky_1_joint" axis="0 0 1" range="0 1.4"/>
                               <geom  class="digit" fromto="0 0 0  0.028 0 0"/>
                             </body>
