@@ -23,17 +23,6 @@ def _site_quat(data, sid):
     return q
 
 
-def find_actuators_by_name(model, names_wanted):
-    """Return actuator ids whose name is in names_wanted (exact match)."""
-    name_set = set(names_wanted)
-    ids = []
-    for i in range(model.nu):
-        nm = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
-        if nm in name_set:
-            ids.append(i)
-    return sorted(ids)
-
-
 def named_site_id(model, name):
     sid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, name)
     if sid < 0:
@@ -48,6 +37,29 @@ def _set_joint_if_exists(model, data, joint_name, value):
         data.qpos[adr] = float(value)
 
 
+def _joint_ids(model, names):
+    ids = []
+    for n in names:
+        j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)
+        if j >= 0:
+            ids.append(j)
+    return ids
+
+
+def _collect_hand_actuator_ids(model, side):
+    """Collect any actuators that drive joints starting with '<side>_hand_'.
+    Works for both the 12-DOF FTX and the legacy 3-finger XMLs.
+    """
+    ids = []
+    prefix = f"{side}_hand_"
+    for a in range(model.nu):
+        j = int(model.actuator_trnid[a, 0])
+        jname = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j)
+        if jname and jname.startswith(prefix):
+            ids.append(a)
+    return sorted(ids)
+
+
 class G1InspireCanGrasp(gym.Env):
     metadata = {"render_modes": ["human", "none"]}
 
@@ -58,7 +70,8 @@ class G1InspireCanGrasp(gym.Env):
                  hand_names=None,
                  max_steps=400,
                  target_lift=0.03,
-                 randomize_init=True):
+                 randomize_init=True,
+                 ik_warm_start=True):
         super().__init__()
 
         if not os.path.isfile(scene_xml_path):
@@ -71,35 +84,31 @@ class G1InspireCanGrasp(gym.Env):
         self.max_steps = max_steps
         self.target_lift = target_lift
         self.randomize_init = randomize_init
+        self.ik_warm_start = ik_warm_start
         self.step_count = 0
 
-        # Hand actuator names (12-DOF InspireFTX OR backward-compatible with legacy)
-        if hand.lower().startswith("r"):
-            hand_actuator_names = [
-                "right_hand_thumb_0_joint","right_hand_thumb_1_joint","right_hand_thumb_2_joint","right_hand_thumb_3_joint",
-                "right_hand_index_0_joint","right_hand_index_1_joint",
-                "right_hand_middle_0_joint","right_hand_middle_1_joint",
-                "right_hand_ring_0_joint","right_hand_ring_1_joint",
-                "right_hand_pinky_0_joint","right_hand_pinky_1_joint",
-            ]
+        # side-specific names
+        self.side = "right" if hand.lower().startswith("r") else "left"
+        self.palm_site_name = "palm_site_right" if self.side == "right" else "palm_site_left"
+
+        # choose hand actuators
+        if hand_names is not None:
+            # explicit list (rare)
+            name_set = set(hand_names)
+            ids = []
+            for i in range(self.model.nu):
+                nm = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+                if nm in name_set:
+                    ids.append(i)
+            self.hand_actuator_ids = sorted(ids)
         else:
-            hand_actuator_names = [
-                "left_hand_thumb_0_joint","left_hand_thumb_1_joint","left_hand_thumb_2_joint","left_hand_thumb_3_joint",
-                "left_hand_index_0_joint","left_hand_index_1_joint",
-                "left_hand_middle_0_joint","left_hand_middle_1_joint",
-                "left_hand_ring_0_joint","left_hand_ring_1_joint",
-                "left_hand_pinky_0_joint","left_hand_pinky_1_joint",
-            ]
+            # automatically detect by joint name prefix
+            self.hand_actuator_ids = _collect_hand_actuator_ids(self.model, self.side)
 
-        # --- IMPORTANT bugfix: use the names we just built (ignore hand_names arg) ---
-        self.hand_actuator_ids = find_actuators_by_name(self.model, hand_actuator_names)
         if len(self.hand_actuator_ids) == 0:
-            raise RuntimeError(
-                f"No actuators found for names {hand_actuator_names}. "
-                f"Check XML and actuator naming."
-            )
+            raise RuntimeError("No hand actuators found. Check XML actuator names match '<side>_hand_*'.")
 
-        # Map actuators → joints
+        # map actuators → joints
         self.act_to_joint = np.array(
             [int(self.model.actuator_trnid[a, 0]) for a in self.hand_actuator_ids],
             dtype=int
@@ -111,40 +120,47 @@ class G1InspireCanGrasp(gym.Env):
         # PD gains + torque limits
         self.kp = np.full(len(self.hand_actuator_ids), 20.0, dtype=np.float64)
         self.kd = np.full(len(self.hand_actuator_ids), 1.0, dtype=np.float64)
+        # guess higher limit for thumb_0, else 1.4; clamp to 1.0 for stability
         self.hand_actuator_names = [
             mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, a)
             for a in self.hand_actuator_ids
         ]
-        # conservative torque cap
         self.torque_limit = np.minimum(
             np.array([2.45 if ("thumb_0" in n) else 1.4 for n in self.hand_actuator_names], dtype=np.float64),
             1.0
         )
 
-        # Action scaling
+        # action + obs
         self.action_scale = 0.03
         self.des_q = self.data.qpos[self.jnt_qposadr].copy()
         self.action_space = spaces.Box(-1.0, 1.0,
                                        shape=(len(self.hand_actuator_ids),),
                                        dtype=np.float32)
 
-        # Observation space
         self.can_sid = named_site_id(self.model, "can_site")
         try:
             j = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
             self.can_free_joint = j if j >= 0 else None
         except Exception:
             self.can_free_joint = None
-        palm_name = "palm_site_right" if hand.lower().startswith("r") else "palm_site_left"
-        self.palm_sid = named_site_id(self.model, palm_name)
+        self.palm_sid = named_site_id(self.model, self.palm_site_name)
 
         obs_dim = (len(self.jnt_qposadr) * 2) + 3 + 4 + 3
         self.observation_space = spaces.Box(-np.inf, np.inf,
                                             shape=(obs_dim,), dtype=np.float32)
 
+        # arm joints for tiny IK warm start
+        self.arm_joint_names = ([
+            "right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
+            "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint"
+        ] if self.side == "right" else [
+            "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint",
+            "left_elbow_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint", "left_wrist_yaw_joint"
+        ])
+
         self.viewer = None
 
-    # ---------------- utils ----------------
+    # ---------- utils ----------
     def _get_obs(self):
         mujoco.mj_forward(self.model, self.data)
         qpos = self.data.qpos[self.jnt_qposadr].copy()
@@ -163,7 +179,6 @@ class G1InspireCanGrasp(gym.Env):
         qd = self.data.qvel[self.jnt_dofadr].astype(np.float64)
         tau = self.kp * (self.des_q - q) - self.kd * qd
         tau = np.clip(tau, -self.torque_limit, self.torque_limit)
-        # zero everything then set only the hand torques
         self.data.ctrl[:] = 0.0
         self.data.ctrl[self.hand_actuator_ids] = tau
 
@@ -185,57 +200,81 @@ class G1InspireCanGrasp(gym.Env):
         self.data.qvel[dof:dof+6] = 0.0
 
     def _set_safe_arm_pose(self):
-        """
-        Raise both arms forward so hands start higher & away from the legs.
-        Works for both left/right by name; silently skips joints that don't exist.
-        """
-        # Left
-        _set_joint_if_exists(self.model, self.data, "left_shoulder_pitch_joint", -0.60)
-        _set_joint_if_exists(self.model, self.data, "left_shoulder_roll_joint",   0.20)
-        _set_joint_if_exists(self.model, self.data, "left_shoulder_yaw_joint",    0.00)
-        _set_joint_if_exists(self.model, self.data, "left_elbow_joint",           1.20)
-        _set_joint_if_exists(self.model, self.data, "left_wrist_roll_joint",      0.00)
-        _set_joint_if_exists(self.model, self.data, "left_wrist_pitch_joint",     0.00)
-        _set_joint_if_exists(self.model, self.data, "left_wrist_yaw_joint",       0.00)
+        """Arms-forward pose so palms start in front, not behind legs."""
+        if self.side == "left":
+            _set_joint_if_exists(self.model, self.data, "left_shoulder_pitch_joint", -1.20)
+            _set_joint_if_exists(self.model, self.data, "left_shoulder_roll_joint",   0.25)
+            _set_joint_if_exists(self.model, self.data, "left_shoulder_yaw_joint",    0.00)
+            _set_joint_if_exists(self.model, self.data, "left_elbow_joint",           1.60)
+            _set_joint_if_exists(self.model, self.data, "left_wrist_roll_joint",      0.00)
+            _set_joint_if_exists(self.model, self.data, "left_wrist_pitch_joint",     0.10)
+            _set_joint_if_exists(self.model, self.data, "left_wrist_yaw_joint",       0.00)
+        else:
+            _set_joint_if_exists(self.model, self.data, "right_shoulder_pitch_joint", -1.20)
+            _set_joint_if_exists(self.model, self.data, "right_shoulder_roll_joint", -0.25)
+            _set_joint_if_exists(self.model, self.data, "right_shoulder_yaw_joint",   0.00)
+            _set_joint_if_exists(self.model, self.data, "right_elbow_joint",          1.60)
+            _set_joint_if_exists(self.model, self.data, "right_wrist_roll_joint",     0.00)
+            _set_joint_if_exists(self.model, self.data, "right_wrist_pitch_joint",    0.10)
+            _set_joint_if_exists(self.model, self.data, "right_wrist_yaw_joint",      0.00)
 
-        # Right
-        _set_joint_if_exists(self.model, self.data, "right_shoulder_pitch_joint", -0.60)
-        _set_joint_if_exists(self.model, self.data, "right_shoulder_roll_joint", -0.20)
-        _set_joint_if_exists(self.model, self.data, "right_shoulder_yaw_joint",   0.00)
-        _set_joint_if_exists(self.model, self.data, "right_elbow_joint",          1.20)
-        _set_joint_if_exists(self.model, self.data, "right_wrist_roll_joint",     0.00)
-        _set_joint_if_exists(self.model, self.data, "right_wrist_pitch_joint",    0.00)
-        _set_joint_if_exists(self.model, self.data, "right_wrist_yaw_joint",      0.00)
-
-        # Mild finger curl to avoid accidental interpenetration at reset
-        finger_vals = {
-            # Left
-            "left_hand_index_0_joint":  0.20, "left_hand_index_1_joint":  0.20,
-            "left_hand_middle_0_joint": 0.20, "left_hand_middle_1_joint": 0.20,
-            "left_hand_ring_0_joint":   0.15, "left_hand_ring_1_joint":   0.15,
-            "left_hand_pinky_0_joint":  0.10, "left_hand_pinky_1_joint":  0.10,
-            "left_hand_thumb_0_joint":  0.00, "left_hand_thumb_1_joint":   0.20,
-            "left_hand_thumb_2_joint":  0.20, "left_hand_thumb_3_joint":   0.20,
-            # Right
-            "right_hand_index_0_joint":  0.20, "right_hand_index_1_joint":  0.20,
-            "right_hand_middle_0_joint": 0.20, "right_hand_middle_1_joint": 0.20,
-            "right_hand_ring_0_joint":   0.15, "right_hand_ring_1_joint":   0.15,
-            "right_hand_pinky_0_joint":  0.10, "right_hand_pinky_1_joint":  0.10,
-            "right_hand_thumb_0_joint":  0.00, "right_hand_thumb_1_joint":  0.20,
-            "right_hand_thumb_2_joint":  0.20, "right_hand_thumb_3_joint":  0.20,
+        # light finger curl
+        pref = "left_" if self.side == "left" else "right_"
+        vals = {
+            f"{pref}hand_index_0_joint": 0.20, f"{pref}hand_index_1_joint": 0.20,
+            f"{pref}hand_middle_0_joint": 0.20, f"{pref}hand_middle_1_joint": 0.20,
+            f"{pref}hand_ring_0_joint": 0.15, f"{pref}hand_ring_1_joint": 0.15,
+            f"{pref}hand_pinky_0_joint": 0.10, f"{pref}hand_pinky_1_joint": 0.10,
+            f"{pref}hand_thumb_0_joint": 0.00, f"{pref}hand_thumb_1_joint": 0.20,
+            f"{pref}hand_thumb_2_joint": 0.20, f"{pref}hand_thumb_3_joint": 0.20,
         }
-        for jn, val in finger_vals.items():
-            _set_joint_if_exists(self.model, self.data, jn, val)
+        for jn, v in vals.items():
+            _set_joint_if_exists(self.model, self.data, jn, v)
 
-    # ---------------- gym api ----------------
+    def _ik_palm_to_can(self, target_offset=np.array([-0.08, 0.0, 0.03]), iters=18, damping=1e-2):
+        """Tiny damped-Least-Squares IK to bring palm near the can (reset only)."""
+        j_ids = _joint_ids(self.model, self.arm_joint_names)
+        if not j_ids:
+            return
+        dof_ids = np.array([self.model.jnt_dofadr[j] for j in j_ids], dtype=int)
+
+        jacp = np.zeros((3, self.model.nv), dtype=np.float64)
+        jacr = np.zeros((3, self.model.nv), dtype=np.float64)
+
+        mujoco.mj_forward(self.model, self.data)
+        can_pos = self.data.site_xpos[self.can_sid].copy()
+        target = can_pos + target_offset
+
+        for _ in range(iters):
+            mujoco.mj_forward(self.model, self.data)
+            palm_pos = self.data.site_xpos[self.palm_sid].copy()
+            err = (target - palm_pos)
+            if np.linalg.norm(err) < 0.01:
+                break
+
+            mujoco.mj_jacSite(self.model, self.data, jacp, jacr, self.palm_sid)
+            J = jacp[:, dof_ids]  # 3 x ndof
+            JJt = J @ J.T
+            A = JJt + (damping ** 2) * np.eye(3)
+            dq = J.T @ np.linalg.solve(A, err)
+
+            for k, j in enumerate(j_ids):
+                adr = self.model.jnt_qposadr[j]
+                lo, hi = self.model.jnt_range[j]
+                self.data.qpos[adr] = np.clip(self.data.qpos[adr] + 0.5 * dq[k], lo, hi)
+
+        mujoco.mj_forward(self.model, self.data)
+
+    # ---------- gym api ----------
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
 
-        # Safe arms-up pose before forward()
         self._set_safe_arm_pose()
+        if self.ik_warm_start:
+            # behind & slightly above can to avoid immediate penetration
+            self._ik_palm_to_can(target_offset=np.array([-0.08, 0.0, 0.03]), iters=18, damping=1e-2)
 
-        # initialize PD setpoint to current joint angles
         self.des_q = self.data.qpos[self.jnt_qposadr].copy()
 
         if self.randomize_init:
@@ -259,12 +298,11 @@ class G1InspireCanGrasp(gym.Env):
 
     def _compute_reward_and_success(self):
         mujoco.mj_forward(self.model, self.data)
-
         can_pos = self.data.site_xpos[self.can_sid]
         palm_pos = self.data.site_xpos[self.palm_sid]
         dist = np.linalg.norm(can_pos - palm_pos)
 
-        # Count contacts with the can
+        # contact bonus
         touch_bonus = 0.0
         touched = False
         for i in range(self.data.ncon):
@@ -296,9 +334,7 @@ class G1InspireCanGrasp(gym.Env):
         if self.render_mode != "human":
             return
         if not HAVE_MJ_VIEWER:
-            raise RuntimeError(
-                "mujoco.viewer not available. Install mujoco>=2.3.5 and set MUJOCO_GL=glfw."
-            )
+            raise RuntimeError("mujoco.viewer not available. Install mujoco>=2.3.5 and set MUJOCO_GL=glfw.")
         if self.viewer is None:
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
         else:
