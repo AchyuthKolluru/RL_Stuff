@@ -275,17 +275,26 @@
 
                           <!-- Right hand digits (same as before, with inertial on thumb base) -->
                           <body name="right_thumb_base" pos="0.055 -0.025 0.0">
-                            <inertial pos="0 0 0" mass="0.02" diaginertia="1e-5 1e-5 1e-5"/>
-                            <joint name="right_hand_thumb_0_joint" axis="0 1 0" range="-0.8 0.8" damping="0.05" armature="0.002" stiffness="0"/>
+                            <joint name="right_hand_thumb_0_joint" axis="0 -1 0" range="-0.8 0.8"
+                                  damping="0.05" armature="0.002" stiffness="0"/>
                             <body name="right_thumb_cmc" pos="0 0 0">
-                              <joint name="right_hand_thumb_1_joint" axis="0 0 1" range="0 1.2" damping="0.05" armature="0.002" stiffness="0"/>
-                              <geom type="capsule" fromto="0 0 0  0.035 0 0" size="0.008" rgba="0.8 0.8 0.8 1" density="800" friction="1.2 0.01 0.0001" contype="1" conaffinity="1" margin="0.002"/>
+                              <joint name="right_hand_thumb_1_joint" axis="0 0 -1" range="0 1.2"
+                                    damping="0.05" armature="0.002" stiffness="0"/>
+                              <geom type="capsule" fromto="0 0 0  0.035 0 0" size="0.008"
+                                    rgba="0.8 0.8 0.8 1" density="800"
+                                    friction="1.2 0.01 0.0001" contype="1" conaffinity="1"/>
                               <body name="right_thumb_mcp" pos="0.035 0 0">
-                                <joint name="right_hand_thumb_2_joint" axis="0 0 1" range="0 1.2" damping="0.05" armature="0.002" stiffness="0"/>
-                                <geom type="capsule" fromto="0 0 0  0.03 0 0" size="0.008" rgba="0.8 0.8 0.8 1" density="800" friction="1.2 0.01 0.0001" contype="1" conaffinity="1" margin="0.002"/>
+                                <joint name="right_hand_thumb_2_joint" axis="0 0 -1" range="0 1.2"
+                                      damping="0.05" armature="0.002" stiffness="0"/>
+                                <geom type="capsule" fromto="0 0 0  0.03 0 0" size="0.008"
+                                      rgba="0.8 0.8 0.8 1" density="800"
+                                      friction="1.2 0.01 0.0001" contype="1" conaffinity="1"/>
                                 <body name="right_thumb_ip" pos="0.03 0 0">
-                                  <joint name="right_hand_thumb_3_joint" axis="0 0 1" range="0 1.2" damping="0.05" armature="0.002" stiffness="0"/>
-                                  <geom type="capsule" fromto="0 0 0  0.028 0 0" size="0.008" rgba="0.8 0.8 0.8 1" density="800" friction="1.2 0.01 0.0001" contype="1" conaffinity="1" margin="0.002"/>
+                                  <joint name="right_hand_thumb_3_joint" axis="0 0 -1" range="0 1.2"
+                                        damping="0.05" armature="0.002" stiffness="0"/>
+                                  <geom type="capsule" fromto="0 0 0  0.028 0 0" size="0.008"
+                                        rgba="0.8 0.8 0.8 1" density="800"
+                                        friction="1.2 0.01 0.0001" contype="1" conaffinity="1"/>
                                 </body>
                               </body>
                             </body>
