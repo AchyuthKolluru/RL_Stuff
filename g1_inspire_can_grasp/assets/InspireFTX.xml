@@ -46,19 +46,19 @@
 
     <!-- H1 finger visuals (placeholders) -->
   <asset>
-    <mesh name="h1_hand_base"          file="hand_base_link.stl"/>
-    <mesh name="h1_index_proximal"     file="index_proximal.stl"/>
-    <mesh name="h1_index_intermediate" file="index_intermediate.stl"/>
-    <mesh name="h1_middle_proximal"    file="middle_proximal.stl"/>
-    <mesh name="h1_middle_intermediate"file="middle_intermediate.stl"/>
-    <mesh name="h1_ring_proximal"      file="ring_proximal.stl"/>
-    <mesh name="h1_ring_intermediate"  file="ring_intermediate.stl"/>
-    <mesh name="h1_pinky_proximal"     file="pinky_proximal.stl"/>
-    <mesh name="h1_pinky_intermediate" file="pinky_intermediate.stl"/>
-    <mesh name="h1_thumb_prox_base"    file="thumb_proximal_base.stl"/>
-    <mesh name="h1_thumb_proximal"     file="thumb_proximal.stl"/>
-    <mesh name="h1_thumb_intermediate" file="thumb_intermediate.stl"/>
-    <mesh name="h1_thumb_distal"       file="thumb_distal.stl"/>
+    <mesh name="h1_hand_base"          file="L_hand_base_link.STL"/>
+    <mesh name="h1_index_proximal"     file="L_index_proximal.STL"/>
+    <mesh name="h1_index_intermediate" file="L_index_intermediate.STL"/>
+    <mesh name="h1_middle_proximal"    file="L_middle_proximal.STL"/>
+    <mesh name="h1_middle_intermediate"file="L_middle_intermediate.STL"/>
+    <mesh name="h1_ring_proximal"      file="L_ring_proximal.STL"/>
+    <mesh name="h1_ring_intermediate"  file="L_ring_intermediate.STL"/>
+    <mesh name="h1_pinky_proximal"     file="L_pinky_proximal.STL"/>
+    <mesh name="h1_pinky_intermediate" file="L_pinky_intermediate.STL"/>
+    <mesh name="h1_thumb_prox_base"    file="L_thumb_proximal_base.STL"/>
+    <mesh name="h1_thumb_proximal"     file="L_thumb_proximal.STL"/>
+    <mesh name="h1_thumb_intermediate" file="L_thumb_intermediate.STL"/>
+    <mesh name="h1_thumb_distal"       file="L_thumb_distal.STL"/>
   </asset>
 
   <statistic center="1.0 0.7 1.0" extent="0.8"/>
