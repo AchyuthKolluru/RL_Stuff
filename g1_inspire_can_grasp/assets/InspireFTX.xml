@@ -45,7 +45,8 @@
     <mesh name="left_wrist_roll_link" file="left_wrist_roll_link.STL"/>
     <mesh name="left_wrist_pitch_link" file="left_wrist_pitch_link.STL"/>
     <mesh name="left_wrist_yaw_link" file="left_wrist_yaw_link.STL"/>
-    <!-- old hand meshes retained in assets but NOT used below -->
+
+    <!-- old hand meshes retained but NOT used below -->
     <mesh name="left_hand_palm_link" file="left_hand_palm_link.STL"/>
     <mesh name="left_hand_thumb_0_link" file="left_hand_thumb_0_link.STL"/>
     <mesh name="left_hand_thumb_1_link" file="left_hand_thumb_1_link.STL"/>
@@ -54,6 +55,7 @@
     <mesh name="left_hand_middle_1_link" file="left_hand_middle_1_link.STL"/>
     <mesh name="left_hand_index_0_link" file="left_hand_index_0_link.STL"/>
     <mesh name="left_hand_index_1_link" file="left_hand_index_1_link.STL"/>
+
     <mesh name="right_shoulder_pitch_link" file="right_shoulder_pitch_link.STL"/>
     <mesh name="right_shoulder_roll_link" file="right_shoulder_roll_link.STL"/>
     <mesh name="right_shoulder_yaw_link" file="right_shoulder_yaw_link.STL"/>
@@ -61,7 +63,8 @@
     <mesh name="right_wrist_roll_link" file="right_wrist_roll_link.STL"/>
     <mesh name="right_wrist_pitch_link" file="right_wrist_pitch_link.STL"/>
     <mesh name="right_wrist_yaw_link" file="right_wrist_yaw_link.STL"/>
-    <!-- old right hand meshes retained in assets but NOT used below -->
+
+    <!-- old right hand meshes retained but NOT used below -->
     <mesh name="right_hand_palm_link" file="right_hand_palm_link.STL"/>
     <mesh name="right_hand_thumb_0_link" file="right_hand_thumb_0_link.STL"/>
     <mesh name="right_hand_thumb_1_link" file="right_hand_thumb_1_link.STL"/>
@@ -91,6 +94,19 @@
   <worldbody>
     <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <!-- ===== Static training can (with site expected by env) ===== -->
+    <body name="can_body" pos="0.42 -0.03 1.03">
+      <!-- Make it collidable but fixed to world (no joint). -->
+      <geom name="can_geom" type="cylinder" size="0.03 0.06"
+            rgba="0.9 0.6 0.2 1" friction="1.0 0.005 0.0001"
+            contype="1" conaffinity="1"/>
+      <site name="can_site" pos="0 0 0" size="0.005" type="sphere" rgba="0.2 0.8 0.2 1"/>
+      <!-- For a dynamic can later, uncomment the next line:
+      <joint name="can_free" type="free"/>
+      -->
+    </body>
+    <!-- ========================================================== -->
 
     <body name="pelvis" pos="0 0 0.793">
       <inertial pos="0 0 -0.07605" quat="1 0 -0.000399148 0" mass="3.813"
@@ -221,7 +237,6 @@
 
                           <!-- Thumb (ab/adduction + 3x flex) -->
                           <body name="left_thumb_base" pos="0.055 0.025 0.0">
-                            <!-- explicit inertia (no geoms in this body) -->
                             <inertial pos="0 0 0" mass="0.02" diaginertia="2e-5 2e-5 2e-5"/>
                             <joint class="digit" name="left_hand_thumb_0_joint" axis="0 1 0" range="-0.8 0.8"/>
                             <body name="left_thumb_cmc" pos="0 0 0">
@@ -333,7 +348,6 @@
 
                           <!-- Thumb (ab/adduction + 3x flex) -->
                           <body name="right_thumb_base" pos="0.055 -0.025 0.0">
-                            <!-- explicit inertia (no geoms in this body) -->
                             <inertial pos="0 0 0" mass="0.02" diaginertia="2e-5 2e-5 2e-5"/>
                             <joint class="digit" name="right_hand_thumb_0_joint" axis="0 1 0" range="-0.8 0.8"/>
                             <body name="right_thumb_cmc" pos="0 0 0">
