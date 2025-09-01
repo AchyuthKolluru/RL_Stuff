@@ -69,10 +69,13 @@ class G1InspireCanGrasp(gym.Env):
                  randomize_init=True,
                  ik_warm_start=False,
                  control_arm=True,
-                 auto_grasp=True):
+                 auto_grasp=True,
+                 grip_synergy=True,           # <-- NEW: enable 1 extra action for group curl/open
+                 synergy_gain=0.06):          # <-- NEW: strength of the synergy bias per step
         """
         control_arm=True  -> the policy controls the arm joints (same side) + the fingers.
         auto_grasp=True   -> tiny closure bias for fingers when palm is near the can (keeps behavior stable).
+        grip_synergy=True -> adds one extra scalar action that curls/opens all hand joints together.
         """
         super().__init__()
 
@@ -89,6 +92,8 @@ class G1InspireCanGrasp(gym.Env):
         self.ik_warm_start = ik_warm_start
         self.control_arm = control_arm
         self.auto_grasp = auto_grasp
+        self.grip_synergy = grip_synergy
+        self.synergy_gain = float(synergy_gain)
         self.step_count = 0
 
         # ---------------- side selection ----------------
@@ -193,7 +198,10 @@ class G1InspireCanGrasp(gym.Env):
         self.des_q = self.data.qpos[self.ctrl_jnt_qposadr].copy()
 
         # Action/observation spaces
-        self.action_space = spaces.Box(-1.0, 1.0, shape=(self.n_total,), dtype=np.float32)
+        self.base_action_dim = self.n_total
+        self.has_synergy = bool(self.grip_synergy)
+        self.action_dim = self.base_action_dim + (1 if self.has_synergy else 0)
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(self.action_dim,), dtype=np.float32)
 
         # Observation: (qpos,qvel of all controlled joints) + can pos (3) + can quat (4) + palm→can vec (3)
         self.can_sid = named_site_id(self.model, "can_site")
@@ -210,7 +218,6 @@ class G1InspireCanGrasp(gym.Env):
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(obs_dim,), dtype=np.float32)
 
         # ---------------- sets used for wrap reward ----------------
-        # map bodies to finger labels (thumb/index/middle/ring/pinky)
         labels = {
             "thumb":  [f"{self.side_prefix}thumb_base", f"{self.side_prefix}thumb_cmc", f"{self.side_prefix}thumb_mcp", f"{self.side_prefix}thumb_ip"],
             "index":  [f"{self.side_prefix}index_base", f"{self.side_prefix}index_mid"],
@@ -225,7 +232,7 @@ class G1InspireCanGrasp(gym.Env):
                 if bid >= 0:
                     self.bodyid_to_finger[bid] = lab
 
-        # flexion joint groups for closure reward (normalize by joint range)
+        # flexion joint groups for closure reward
         self.flexion_joint_names = [
             f"{self.side_prefix}hand_index_0_joint",  f"{self.side_prefix}hand_index_1_joint",
             f"{self.side_prefix}hand_middle_0_joint", f"{self.side_prefix}hand_middle_1_joint",
@@ -233,7 +240,6 @@ class G1InspireCanGrasp(gym.Env):
             f"{self.side_prefix}hand_pinky_0_joint",  f"{self.side_prefix}hand_pinky_1_joint",
             f"{self.side_prefix}hand_thumb_1_joint",  f"{self.side_prefix}hand_thumb_2_joint", f"{self.side_prefix}hand_thumb_3_joint",
         ]
-        # optional: encourage opposition at a mid value for thumb_0 (ab/adduction)
         self.thumb0_name = f"{self.side_prefix}hand_thumb_0_joint"
 
         self.flexion_jids = []
@@ -264,9 +270,18 @@ class G1InspireCanGrasp(gym.Env):
 
     def _apply_action(self, action):
         action = np.clip(action.astype(np.float64), -1.0, 1.0)
-        # Per-joint incremental position target
+
+        # split out synergy if enabled
+        if self.has_synergy:
+            a_main = action[:self.base_action_dim]
+            s = float(action[-1])  # synergy scalar in [-1,1]
+        else:
+            a_main = action
+            s = 0.0
+
+        # Per-joint incremental position target (arm then hand)
         self.des_q = np.clip(
-            self.des_q + (self.action_scale_vec * action),
+            self.des_q + (self.action_scale_vec * a_main),
             self.ctrl_jnt_range[:, 0], self.ctrl_jnt_range[:, 1]
         )
 
@@ -276,7 +291,6 @@ class G1InspireCanGrasp(gym.Env):
             canp = self.data.site_xpos[self.can_sid]
             d = float(np.linalg.norm(palm - canp))
             if d < 0.12:
-                # add a small bias towards closing for the hand joints only
                 hand_slice = slice(self.n_arm, self.n_total)
                 bias = 0.006 * (0.12 - d) / 0.12  # 0 (far) → ~0.006 (very near)
                 self.des_q[hand_slice] = np.clip(
@@ -285,6 +299,20 @@ class G1InspireCanGrasp(gym.Env):
                     self.ctrl_jnt_range[hand_slice, 1]
                 )
 
+        # NEW: synergy bias toward upper (close) or lower (open) limits for hand joints
+        if self.has_synergy and self.n_hand > 0 and abs(s) > 1e-6:
+            hand_slice = slice(self.n_arm, self.n_total)
+            lo = self.ctrl_jnt_range[hand_slice, 0]
+            hi = self.ctrl_jnt_range[hand_slice, 1]
+            qh = self.des_q[hand_slice]
+
+            # target = hi if s>=0 else lo; bias step toward that target
+            target = hi if s >= 0.0 else lo
+            # bias magnitude scales with distance to target so it never overshoots
+            bias_step = self.synergy_gain * s * (target - qh)
+            self.des_q[hand_slice] = np.clip(qh + bias_step, lo, hi)
+
+        # PD control
         q  = self.data.qpos[self.ctrl_jnt_qposadr].astype(np.float64)
         qd = self.data.qvel[self.ctrl_jnt_dofadr].astype(np.float64)
         tau = self.kp_vec * (self.des_q - q) - self.kd_vec * qd
@@ -417,10 +445,12 @@ class G1InspireCanGrasp(gym.Env):
         """Return coverage (0..2π) of a set of angles on the circle."""
         if len(angles) < 2:
             return 0.0
-        ang = np.sort((np.array(angles) + np.pi) % (2*np.pi))  # [0, 2π)
+        ang = np.sort((np.array(angles, dtype=np.float64) + np.pi) % (2*np.pi))  # [0, 2π)
         gaps = np.diff(np.concatenate([ang, ang[:1] + 2*np.pi]))
+        if gaps.size == 0:
+            return 0.0
         max_gap = float(np.max(gaps))
-        return 2*np.pi - max_gap  # covered arc length
+        return float(2*np.pi - max_gap)  # covered arc length
 
     def _compute_reward_and_success(self):
         mujoco.mj_forward(self.model, self.data)
@@ -441,42 +471,34 @@ class G1InspireCanGrasp(gym.Env):
             if g1 < 0 or g2 < 0:
                 continue
 
-            # count any touch with can
-            if g1 == self.can_geom_id or g2 == self.can_geom_id:
+            if self.can_geom_id >= 0 and (g1 == self.can_geom_id or g2 == self.can_geom_id):
                 touched = True
-
-                # other geom (hand link)
                 other = g2 if g1 == self.can_geom_id else g1
+
                 # which finger label does that geom's body belong to?
                 bid = int(self.model.geom_bodyid[other])
                 lab = self.bodyid_to_finger.get(bid, None)
                 if lab is not None:
                     touching_fingers.add(lab)
 
-                # angle around the can in XY (cylinder axis is Z)
-                p = np.array(c.pos, dtype=np.float64)  # contact point (world)
+                # angle around can in XY
+                p = np.array(c.pos, dtype=np.float64)
                 v = p - can_pos
                 ang = math.atan2(v[1], v[0])
                 contact_angles.append(ang)
 
-                # mild penalty for deep penetration (negative dist)
+                # mild penalty for deep penetration
                 if c.dist < 0.0:
                     penetration_pen += float((-c.dist) ** 2)
 
         # ---------- reward components ----------
-        # approach shaping (same as before)
         approach_r = 2.0 * (1.0 / (0.05 + dist))
-
-        # touch bonus (same as before but scaled a bit)
         touch_r = 0.01 * (1.0 if touched else 0.0)
 
-        # WRAP: reward distinct fingers and angular coverage
         distinct_r = 0.03 * min(5, len(touching_fingers))  # up to 5 fingers
         coverage = self._angular_coverage(contact_angles)  # 0..2π
-        # scale so ~120° coverage already gives good bonus
-        coverage_r = 0.04 * min(1.0, coverage / (np.pi * 2/3))
+        coverage_r = 0.04 * min(1.0, coverage / (np.pi * 2/3))  # ~120° gives good bonus
 
-        # CLOSURE: encourage flexion when touching
         closure_r = 0.0
         if touched and len(self.flexion_jids) > 0:
             vals = []
@@ -485,25 +507,20 @@ class G1InspireCanGrasp(gym.Env):
                 q = float(self.data.qpos[adr])
                 n = (q - lo) / max(1e-6, (hi - lo))
                 vals.append(np.clip(n, 0.0, 1.0))
-            closure_r = 0.02 * float(np.mean(vals))  # average normalized flexion
+            closure_r = 0.02 * float(np.mean(vals))
 
-            # thumb opposition near mid-range is helpful
             if self.thumb0_jid >= 0 and self.thumb0_range is not None:
                 lo, hi = self.thumb0_range
                 adr = self.model.jnt_qposadr[self.thumb0_jid]
                 q = float(self.data.qpos[adr])
                 mid = 0.5 * (lo + hi)
-                # small bump if thumb0 is around mid (+/- 25% of range)
                 band = 0.25 * (hi - lo)
                 opp = 1.0 - min(1.0, abs(q - mid) / max(1e-6, band))
                 closure_r += 0.01 * opp
 
-        # control penalty
         ctrl_penalty = 1e-3 * float(np.sum(self.data.ctrl[self.ctrl_actuator_ids] ** 2))
-        # penetration penalty
-        pen_penalty = 0.5 * penetration_pen  # keep small
+        pen_penalty = 0.5 * penetration_pen
 
-        # height bonus (if can is free)
         height_bonus = 0.0
         lifted = False
         if self.can_free_joint is not None:
@@ -522,8 +539,6 @@ class G1InspireCanGrasp(gym.Env):
             - pen_penalty
         )
 
-        # ---------- success ----------
-        # Static can: close & multi-finger touch including thumb; Free can: lifted & close wrap.
         has_thumb = ("thumb" in touching_fingers)
         multi_finger = (len(touching_fingers) >= 3) and has_thumb
         close_enough = (dist < 0.06)
