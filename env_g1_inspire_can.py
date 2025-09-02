@@ -60,18 +60,21 @@ class G1InspireCanGrasp(gym.Env):
     metadata = {"render_modes": ["human", "none"]}
 
     def __init__(self,
-                 scene_xml_path,
-                 render_mode="none",
-                 hand="right",
-                 hand_names=None,
-                 max_steps=400,
-                 target_lift=0.03,
-                 randomize_init=True,
-                 ik_warm_start=False,
-                 control_arm=True,
-                 auto_grasp=True,
-                 grip_synergy=True,           # <-- NEW: enable 1 extra action for group curl/open
-                 synergy_gain=0.06):          # <-- NEW: strength of the synergy bias per step
+                scene_xml_path,
+                render_mode="none",
+                hand="right",
+                hand_names=None,
+                max_steps=400,
+                target_lift=0.03,
+                randomize_init=True,
+                ik_warm_start=False,
+                control_arm=True,
+                auto_grasp=True,
+                grip_synergy=True,           # <-- NEW: enable 1 extra action for group curl/open
+                synergy_gain=0.06,
+                hand_gate_open_dist=0.20,   # far: hand control ~0
+                hand_gate_full_dist=0.08,   # near: full hand control
+                auto_grasp_dist=0.07):          # <-- NEW: strength of the synergy bias per step
         """
         control_arm=True  -> the policy controls the arm joints (same side) + the fingers.
         auto_grasp=True   -> tiny closure bias for fingers when palm is near the can (keeps behavior stable).
@@ -95,6 +98,9 @@ class G1InspireCanGrasp(gym.Env):
         self.grip_synergy = grip_synergy
         self.synergy_gain = float(synergy_gain)
         self.step_count = 0
+        self.hand_gate_open_dist = float(hand_gate_open_dist)
+        self.hand_gate_full_dist = float(hand_gate_full_dist)
+        self.auto_grasp_dist = float(auto_grasp_dist)
 
         # ---------------- side selection ----------------
         right = hand.lower().startswith("r")
@@ -271,53 +277,71 @@ class G1InspireCanGrasp(gym.Env):
     def _apply_action(self, action):
         action = np.clip(action.astype(np.float64), -1.0, 1.0)
 
-        # split out synergy if enabled
+        # split synergy
         if self.has_synergy:
             a_main = action[:self.base_action_dim]
-            s = float(action[-1])  # synergy scalar in [-1,1]
+            s = float(action[-1])
         else:
-            a_main = action
-            s = 0.0
+            a_main, s = action, 0.0
 
-        # Per-joint incremental position target (arm then hand)
+        # --- Proximity gating factor p in [0,1] ---
+        palm = self.data.site_xpos[self.palm_sid]
+        canp = self.data.site_xpos[self.can_sid]
+        d = float(np.linalg.norm(palm - canp))
+
+        d_open = self.hand_gate_open_dist    # e.g., 0.20 m
+        d_full = self.hand_gate_full_dist    # e.g., 0.08 m
+        if d <= d_full:
+            p = 1.0
+        elif d >= d_open:
+            p = 0.0
+        else:
+            # smooth ramp; you can square it for a softer start
+            p = (d_open - d) / max(1e-6, (d_open - d_full))
+            p = max(0.0, min(1.0, p))**1.5   # ^1.5 makes it gentler far away
+
+        # scale hand action and synergy by p; arm actions are untouched
+        if self.n_hand > 0:
+            a_scaled = a_main.copy()
+            a_scaled[self.n_arm:self.n_total] *= p
+        else:
+            a_scaled = a_main
+
+        # incremental position targets (arm+hand)
         self.des_q = np.clip(
-            self.des_q + (self.action_scale_vec * a_main),
+            self.des_q + (self.action_scale_vec * a_scaled),
             self.ctrl_jnt_range[:, 0], self.ctrl_jnt_range[:, 1]
         )
 
-        # Optional tiny auto-grasp when close to the can
-        if self.auto_grasp and self.n_hand > 0:
-            palm = self.data.site_xpos[self.palm_sid]
-            canp = self.data.site_xpos[self.can_sid]
-            d = float(np.linalg.norm(palm - canp))
-            if d < 0.12:
-                hand_slice = slice(self.n_arm, self.n_total)
-                bias = 0.006 * (0.12 - d) / 0.12  # 0 (far) → ~0.006 (very near)
-                self.des_q[hand_slice] = np.clip(
-                    self.des_q[hand_slice] + bias,
-                    self.ctrl_jnt_range[hand_slice, 0],
-                    self.ctrl_jnt_range[hand_slice, 1]
-                )
+        # --- Auto-grasp only when very close ---
+        if self.auto_grasp and self.n_hand > 0 and d < self.auto_grasp_dist:
+            hand_slice = slice(self.n_arm, self.n_total)
+            # small bias that grows as we approach d_full
+            t = (self.auto_grasp_dist - d) / max(1e-6, self.auto_grasp_dist - d_full)
+            t = max(0.0, min(1.0, t))
+            bias = 0.004 * t
+            self.des_q[hand_slice] = np.clip(
+                self.des_q[hand_slice] + bias,
+                self.ctrl_jnt_range[hand_slice, 0],
+                self.ctrl_jnt_range[hand_slice, 1]
+            )
 
-        # NEW: synergy bias toward upper (close) or lower (open) limits for hand joints
-        if self.has_synergy and self.n_hand > 0 and abs(s) > 1e-6:
+        # --- Grip synergy: also scaled by p ---
+        if self.has_synergy and self.n_hand > 0 and abs(s) > 1e-6 and p > 0.0:
             hand_slice = slice(self.n_arm, self.n_total)
             lo = self.ctrl_jnt_range[hand_slice, 0]
             hi = self.ctrl_jnt_range[hand_slice, 1]
             qh = self.des_q[hand_slice]
-
-            # target = hi if s>=0 else lo; bias step toward that target
             target = hi if s >= 0.0 else lo
-            # bias magnitude scales with distance to target so it never overshoots
-            bias_step = self.synergy_gain * s * (target - qh)
+            # scale synergy by p, so synergy is ineffective when far
+            bias_step = (self.synergy_gain * p) * s * (target - qh)
             self.des_q[hand_slice] = np.clip(qh + bias_step, lo, hi)
 
-        # PD control
+        # PD control (unchanged)
         q  = self.data.qpos[self.ctrl_jnt_qposadr].astype(np.float64)
         qd = self.data.qvel[self.ctrl_jnt_dofadr].astype(np.float64)
         tau = self.kp_vec * (self.des_q - q) - self.kd_vec * qd
         tau = np.clip(tau, -self.torque_limit_vec, self.torque_limit_vec)
-
         self.data.ctrl[:] = 0.0
         self.data.ctrl[self.ctrl_actuator_ids] = tau
 
@@ -360,16 +384,16 @@ class G1InspireCanGrasp(gym.Env):
 
         # mild finger curl
         for prefix in (["left_"] if hand_side=="left" else ["right_"]):
-            vals = {
-                f"{prefix}hand_index_0_joint": 0.15, f"{prefix}hand_index_1_joint": 0.15,
-                f"{prefix}hand_middle_0_joint": 0.15, f"{prefix}hand_middle_1_joint": 0.15,
-                f"{prefix}hand_ring_0_joint": 0.10, f"{prefix}hand_ring_1_joint": 0.10,
-                f"{prefix}hand_pinky_0_joint": 0.05, f"{prefix}hand_pinky_1_joint": 0.05,
-                f"{prefix}hand_thumb_0_joint": 0.15,  # slight opposition
-                f"{prefix}hand_thumb_1_joint": 0.15, f"{prefix}hand_thumb_2_joint": 0.15, f"{prefix}hand_thumb_3_joint": 0.15,
-            }
-            for jn, v in vals.items():
-                _set_joint_if_exists(self.model, self.data, jn, v)
+                vals = {
+                    f"{prefix}hand_index_0_joint": 0.0, f"{prefix}hand_index_1_joint": 0.0,
+                    f"{prefix}hand_middle_0_joint": 0.0, f"{prefix}hand_middle_1_joint": 0.0,
+                    f"{prefix}hand_ring_0_joint": 0.0,  f"{prefix}hand_ring_1_joint": 0.0,
+                    f"{prefix}hand_pinky_0_joint": 0.0, f"{prefix}hand_pinky_1_joint": 0.0,
+                    f"{prefix}hand_thumb_0_joint": 0.0,
+                    f"{prefix}hand_thumb_1_joint": 0.0, f"{prefix}hand_thumb_2_joint": 0.0, f"{prefix}hand_thumb_3_joint": 0.0,
+                }
+                for jn, v in vals.items():
+                    _set_joint_if_exists(self.model, self.data, jn, v)
 
     def _ik_palm_to_can(self, target_offset=np.array([-0.06, 0.0, 0.02]), iters=12, damping=1e-2):
         """Small damped-least-squares IK to gently bring the palm near the can (optional)."""
