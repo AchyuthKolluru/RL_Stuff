@@ -21,7 +21,11 @@
           solref="0.002 1"/>
 
     <!-- Green center marker (unchanged) -->
-    <site name="can_site" pos="0 0 0" size="0.005" type="sphere" rgba="0.2 0.8 0.2 1"/>
+    <site name="can_site"
+      pos="0.04 0 0"
+      size="0.005"
+      type="sphere"
+      rgba="0.2 0.8 0.2 1"/>
 
     <!-- Visual “standoff” dots: radius (0.03) + standoff (0.02) = 0.05m from can center in ±Y -->
     <site name="standoff_right" pos="0 -0.05 0" size="0.006"
