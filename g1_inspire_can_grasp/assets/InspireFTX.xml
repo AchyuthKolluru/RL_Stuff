@@ -257,10 +257,21 @@
   </worldbody>
 
   <!-- weld base to world (extra safety even with waist locked) -->
+  </worldbody>
+
+  <!-- Weld base + torso absolutely rigid to the world -->
   <equality>
-    <weld body1="pelvis" body2="world_anchor" solref="0.002 1" solimp="0.9 0.95 0.001"/>
+    <!-- already present: base welded to world -->
+    <weld body1="pelvis" body2="world_anchor"
+          solref="0.0005 1" solimp="0.999 0.9999 0.0001"/>
+
+    <!-- NEW: hard-weld the torso to the pelvis -->
+    <weld body1="torso_link" body2="pelvis"
+          solref="0.0005 1" solimp="0.999 0.9999 0.0001"/>
   </equality>
 
+  <!-- Actuators: arms + both 12-DOF hands -->
+  <actuator>
   <!-- ===== actuators: only arms & wrists (no fingers) ===== -->
   <actuator>
     <!-- Left arm -->
