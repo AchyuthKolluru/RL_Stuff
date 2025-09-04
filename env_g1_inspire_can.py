@@ -75,7 +75,7 @@ class G1InspireCanGrasp(gym.Env):
         render_mode: str = "none",
         hand: str = "right",
         max_steps: int = 300,
-        randomize_init: bool = True,
+        randomize_init: bool = False,
         # distances (meters)
         standoff: float = 0.025,
         standoff_tol: float = 0.01,
@@ -85,9 +85,9 @@ class G1InspireCanGrasp(gym.Env):
         touch_penalty: float = 6.0,
         ctrl_cost_scale: float = 1e-3,
         # control
-        action_scale: float = 0.01,
-        kp: float = 12.0,
-        kd: float = 1.0,
+        action_scale: float = 0.003,
+        kp: float = 6.0,  # softer PD → less overshoot
+        kd: float = 1.5,
         torque_limits=(12, 10, 10, 8),
         # misc
         freeze_other: bool = True,
@@ -233,6 +233,8 @@ class G1InspireCanGrasp(gym.Env):
         self.kd_vec = np.full(self.n_total, float(kd), dtype=np.float64)
         self.action_scale_vec = np.full(self.n_total, float(action_scale), dtype=np.float64)
 
+        self.max_joint_step = 0.01  # radians per env step; slow & safe
+
         # desired q for controlled joints
         self.des_q = self.data.qpos[self.ctrl_jnt_qposadr].copy()
 
@@ -337,14 +339,20 @@ class G1InspireCanGrasp(gym.Env):
 
         return np.concatenate([qpos, qvel, can_pos, can_quat, rel_vec]).astype(np.float32)
 
+    # replace _apply_action with this version:
     def _apply_action(self, action):
         action = np.clip(action.astype(np.float64), -1.0, 1.0)
-        self.des_q = np.clip(
-            self.des_q + (self.action_scale_vec * action),
-            self.ctrl_jnt_range[:, 0],
-            self.ctrl_jnt_range[:, 1],
-        )
-        q = self.data.qpos[self.ctrl_jnt_qposadr].astype(np.float64)
+        # proposed new desired q
+        proposed = self.des_q + (self.action_scale_vec * action)
+        proposed = np.clip(proposed, self.ctrl_jnt_range[:, 0], self.ctrl_jnt_range[:, 1])
+
+        # rate-limit the change in desired q
+        delta = proposed - self.des_q
+        delta = np.clip(delta, -self.max_joint_step, self.max_joint_step)
+        self.des_q = self.des_q + delta
+
+        # PD to current q
+        q  = self.data.qpos[self.ctrl_jnt_qposadr].astype(np.float64)
         qd = self.data.qvel[self.ctrl_jnt_dofadr].astype(np.float64)
         tau = self.kp_vec * (self.des_q - q) - self.kd_vec * qd
         tau = np.clip(tau, -self.torque_limit_vec[:self.n_total], self.torque_limit_vec[:self.n_total])
@@ -452,7 +460,7 @@ class G1InspireCanGrasp(gym.Env):
         vec_perp = vec_cp - np.dot(vec_cp, z_axis) * z_axis  # remove z-axis component
         radial = float(np.linalg.norm(vec_perp))
         inside_gap = (self.min_radial_gap - radial)
-        inner_barrier = 25.0 * (inside_gap * inside_gap) if inside_gap > 0.0 else 0.0
+        inner_barrier = 120.0 * (inside_gap * inside_gap) if inside_gap > 0.0 else 0.0
 
         # correct side: projection onto ±Y axis should exceed a margin
         side_progress = (-1.0 if self.right_side else +1.0) * float(np.dot(vec_cp, y_axis))
@@ -471,6 +479,9 @@ class G1InspireCanGrasp(gym.Env):
         # approach reward: now just closeness to the **outside** standoff target
         approach_r = 4.0 * (1.0 / (0.02 + d_target))
 
+        qd = self.data.qvel[self.ctrl_jnt_dofadr]
+        posture_smooth_pen = 1e-4 * float(np.sum(qd**2))
+
         reward = (
             approach_r
             - self.side_weight * side_pen
@@ -478,6 +489,7 @@ class G1InspireCanGrasp(gym.Env):
             - topdown_pen
             - touch_pen
             - ctrl_penalty
+            - posture_smooth_pen
         )
 
         self.step_count += 1

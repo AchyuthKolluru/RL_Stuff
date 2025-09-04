@@ -140,14 +140,14 @@ def main():
     model = SAC(
         "MlpPolicy",
         vec_env,
-        learning_rate=3e-4,
-        buffer_size=500_000,
-        batch_size=1024,
-        tau=0.02,
-        gamma=0.98,
+        learning_rate=1e-4,          # was 3e-4
+        buffer_size=800_000,         # more replay → smoother
+        batch_size=512,              # smaller updates
+        tau=0.01,                    # slower target network updates
+        gamma=0.995,                 # slightly longer horizon
         train_freq=1,
         gradient_steps=1,
-        ent_coef="auto",
+        ent_coef="auto_0.1",         # a bit less exploration pressure
         target_update_interval=1,
         verbose=1,
         tensorboard_log=args.logdir,
@@ -172,3 +172,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # python train_sac.py --robot ftx --num_envs 1 --render_mode human --total_timesteps 1000000
