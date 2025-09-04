@@ -1,3 +1,5 @@
+# env_g1_inspire_can.py
+
 import os
 import math
 import numpy as np
@@ -22,13 +24,17 @@ def _site_quat(data, sid):
     mujoco.mju_mat2Quat(q, R.ravel())
     return q
 
+def _geom_quat(data, gid):
+    R = data.geom_xmat[gid].reshape(3, 3)
+    q = np.empty(4, dtype=np.float64)
+    mujoco.mju_mat2Quat(q, R.ravel())
+    return q
 
 def named_site_id(model, name):
     sid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, name)
     if sid < 0:
         raise RuntimeError(f"Site '{name}' not found. Add it in XML.")
     return sid
-
 
 def find_actuators_by_name(model, names_wanted):
     name_set = set(names_wanted)
@@ -39,7 +45,6 @@ def find_actuators_by_name(model, names_wanted):
             ids.append(i)
     return sorted(ids)
 
-
 def _joint_ids(model, names):
     ids = []
     for n in names:
@@ -47,7 +52,6 @@ def _joint_ids(model, names):
         if j >= 0:
             ids.append(j)
     return ids
-
 
 def _set_joint_if_exists(model, data, joint_name, value):
     j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
@@ -58,11 +62,10 @@ def _set_joint_if_exists(model, data, joint_name, value):
 
 class G1InspireCanGrasp(gym.Env):
     """
-    Simple arm-only approach env.
-    - Control: shoulder pitch/roll/yaw + elbow (4 DoF) on one arm.
-    - Wrist hard-locked level (palm parallel to ground, facing can).
-    - Unused arm frozen. Waist joints hard-locked to stop any lean.
-    - Reward: very close to can at a desired standoff, correct lateral side, no touch.
+    Make the palm move to the chosen lateral side of the can and stop outside it.
+    Key ideas:
+      - Target is a standoff point on ±Y of the can (not its center).
+      - Strong barrier if the palm is inside the can radius + margin.
     """
     metadata = {"render_modes": ["human", "none"]}
 
@@ -73,16 +76,20 @@ class G1InspireCanGrasp(gym.Env):
         hand: str = "right",
         max_steps: int = 300,
         randomize_init: bool = True,
+        # distances (meters)
         standoff: float = 0.025,
         standoff_tol: float = 0.01,
         side_margin: float = 0.02,
+        # rewards/penalties
         side_weight: float = 2.0,
+        touch_penalty: float = 6.0,
+        ctrl_cost_scale: float = 1e-3,
+        # control
         action_scale: float = 0.01,
         kp: float = 12.0,
         kd: float = 1.0,
         torque_limits=(12, 10, 10, 8),
-        touch_penalty: float = 6.0,
-        ctrl_cost_scale: float = 1e-3,
+        # misc
         freeze_other: bool = True,
         ik_warm_start: bool = False,
         **kwargs,
@@ -200,7 +207,7 @@ class G1InspireCanGrasp(gym.Env):
         ) if self.wrist_joint_ids else np.array([], dtype=int)
         self.wrist_qpos_fixed = None
 
-        # === NEW: hard-lock waist joints to stop any lean ===
+        # waist hard-lock
         self.waist_joint_names = ["waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"]
         self.waist_joint_ids = _joint_ids(self.model, self.waist_joint_names)
         self.waist_qpos_adrs = np.array(
@@ -229,28 +236,27 @@ class G1InspireCanGrasp(gym.Env):
         # desired q for controlled joints
         self.des_q = self.data.qpos[self.ctrl_jnt_qposadr].copy()
 
-        # observation setup
-        self.can_sid = named_site_id(self.model, "can_site")
+        # ---- observation / targets ----
+        # palm site
         self.palm_sid = named_site_id(self.model, self.palm_site_name)
 
-        # can geom
-        try:
-            self.can_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "can_geom")
-        except Exception:
-            self.can_geom_id = -1
-        if self.can_geom_id >= 0:
-            sz = self.model.geom_size[self.can_geom_id]
-            self.can_radius = float(sz[0])
-            self.can_half_h = float(sz[1])
-        else:
-            self.can_radius = 0.03
-            self.can_half_h = 0.06
-        self.min_xy_gap = self.can_radius + 0.006
+        # can geometry (for size + pose)
+        self.can_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "can_geom")
+        if self.can_geom_id < 0:
+            raise RuntimeError("Geom 'can_geom' not found in XML.")
+
+        sz = self.model.geom_size[self.can_geom_id]
+        self.can_radius = float(sz[0])
+        self.can_half_h = float(sz[1])
+
+        # inside-approach barrier threshold: radius + small clearance
+        self.min_radial_gap = self.can_radius + 0.006
 
         # optional free joint for can
         j = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
         self.can_free_joint = j if j >= 0 else None
 
+        # observation: qpos,qvel + can_pos(3) + can_quat(4) + rel_vec(3)
         obs_dim = (len(self.ctrl_jnt_qposadr) * 2) + 3 + 4 + 3
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(obs_dim,), dtype=np.float32)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(self.n_total,), dtype=np.float32)
@@ -283,7 +289,6 @@ class G1InspireCanGrasp(gym.Env):
         self.data.qpos[self.wrist_qpos_adrs] = self.wrist_qpos_fixed
         self.data.qvel[self.wrist_dof_adrs] = 0.0
 
-    # NEW: waist hard-lock
     def _record_waist_fixed_pose(self):
         if self.waist_qpos_adrs.size == 0:
             self.waist_qpos_fixed = None
@@ -296,15 +301,40 @@ class G1InspireCanGrasp(gym.Env):
         self.data.qpos[self.waist_qpos_adrs] = self.waist_qpos_fixed
         self.data.qvel[self.waist_dof_adrs] = 0.0
 
+    # ---------- target helpers ----------
+    def _can_frame(self):
+        """
+        Returns can center, can local +Y axis, can local +Z axis, and its rotation matrix.
+        Uses can_geom (works whether the can is static or has a free joint with yaw).
+        """
+        pos = self.data.geom_xpos[self.can_geom_id].copy()
+        R = self.data.geom_xmat[self.can_geom_id].reshape(3, 3).copy()
+        y_axis = R[:, 1]
+        z_axis = R[:, 2]
+        return pos, y_axis, z_axis, R
+
+    def _target_pos(self):
+        """
+        Lateral standoff target outside the can.
+        """
+        can_center, y_axis, _, _ = self._can_frame()
+        sgn = -1.0 if self.right_side else +1.0  # right = negative Y side
+        return can_center + sgn * (self.can_radius + self.standoff) * y_axis
+
     # ---------- helpers ----------
     def _get_obs(self):
         mujoco.mj_forward(self.model, self.data)
         qpos = self.data.qpos[self.ctrl_jnt_qposadr].copy()
         qvel = self.data.qvel[self.ctrl_jnt_dofadr].copy()
-        can_pos = self.data.site_xpos[self.can_sid].copy()
-        can_quat = _site_quat(self.data, self.can_sid)
+
+        can_center, _, _, R = self._can_frame()
+        can_pos = can_center
+        can_quat = np.empty(4, dtype=np.float64)
+        mujoco.mju_mat2Quat(can_quat, R.ravel())
+
         palm_pos = self.data.site_xpos[self.palm_sid].copy()
-        rel_vec = can_pos - palm_pos
+        rel_vec = self._target_pos() - palm_pos
+
         return np.concatenate([qpos, qvel, can_pos, can_quat, rel_vec]).astype(np.float32)
 
     def _apply_action(self, action):
@@ -361,16 +391,6 @@ class G1InspireCanGrasp(gym.Env):
                 return True
         return False
 
-    def _side_penalty(self):
-        mujoco.mj_forward(self.model, self.data)
-        can_y = float(self.data.site_xpos[self.can_sid][1])
-        palm_y = float(self.data.site_xpos[self.palm_sid][1])
-        if self.right_side:
-            violation = max(0.0, (palm_y - can_y) + self.side_margin)
-        else:
-            violation = max(0.0, -(palm_y - can_y) + self.side_margin)
-        return float(violation * violation)
-
     # ---------------- gym API ----------------
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -417,40 +437,42 @@ class G1InspireCanGrasp(gym.Env):
             self._enforce_wrist_fixed()
             self._enforce_waist_fixed()
 
-        obs = self._get_obs()
+        mujoco.mj_forward(self.model, self.data)
 
-        can_pos = self.data.site_xpos[self.can_sid].copy()
+        # --------- compute geometry-aware terms ---------
+        can_center, y_axis, z_axis, _ = self._can_frame()
         palm_pos = self.data.site_xpos[self.palm_sid].copy()
-        diff = can_pos - palm_pos
-        dist = float(np.linalg.norm(diff))
+        target_pos = self._target_pos()
 
-        approach_r = 2.0 * (1.0 / (0.02 + abs(dist - self.standoff)))
+        # distance to standoff target (this is what we want to minimize)
+        d_target = float(np.linalg.norm(target_pos - palm_pos))
 
-        side_pen = self._side_penalty()
+        # radial distance from cylinder axis (penalize being inside)
+        vec_cp = palm_pos - can_center
+        vec_perp = vec_cp - np.dot(vec_cp, z_axis) * z_axis  # remove z-axis component
+        radial = float(np.linalg.norm(vec_perp))
+        inside_gap = (self.min_radial_gap - radial)
+        inner_barrier = 25.0 * (inside_gap * inside_gap) if inside_gap > 0.0 else 0.0
 
-        can_y = float(can_pos[1])
-        palm_y = float(palm_pos[1])
-        desired_sign = -1.0 if self.right_side else +1.0
-        side_align = desired_sign * (palm_y - can_y)
-        side_align_r = 0.5 * max(0.0, side_align)
+        # correct side: projection onto ±Y axis should exceed a margin
+        side_progress = (-1.0 if self.right_side else +1.0) * float(np.dot(vec_cp, y_axis))
+        side_violation = max(0.0, self.side_margin - side_progress)
+        side_pen = side_violation * side_violation
 
-        dist_xy = float(np.linalg.norm((can_pos - palm_pos)[:2]))
-        inner_barrier = 0.0
-        if dist_xy < self.min_xy_gap:
-            inner_barrier = 8.0 * (self.min_xy_gap - dist_xy)
-
-        can_mid_z = float(can_pos[2])
-        palm_z = float(palm_pos[2])
-        vertical_dev = abs(palm_z - can_mid_z)
+        # vertical alignment: stay near can mid-height (tolerant)
+        vertical_dev = abs(float(np.dot(vec_cp, z_axis)))
         topdown_pen = 0.5 * max(0.0, vertical_dev - self.can_half_h * 0.4)
 
+        # contacts + control cost
         touching = self._touching_can()
         touch_pen = self.touch_penalty if touching else 0.0
-
         ctrl_penalty = self.ctrl_cost_scale * float(np.sum(self.data.ctrl[self.ctrl_actuator_ids] ** 2))
 
+        # approach reward: now just closeness to the **outside** standoff target
+        approach_r = 4.0 * (1.0 / (0.02 + d_target))
+
         reward = (
-            approach_r + side_align_r
+            approach_r
             - self.side_weight * side_pen
             - inner_barrier
             - topdown_pen
@@ -459,20 +481,22 @@ class G1InspireCanGrasp(gym.Env):
         )
 
         self.step_count += 1
-        close_enough = (abs(dist - self.standoff) < self.standoff_tol)
-        success = close_enough and (side_align > 0.0) and (not touching) and (inner_barrier == 0.0)
 
+        success = (d_target < self.standoff_tol) and (side_violation == 0.0) and (not touching) and (inner_barrier == 0.0)
         terminated = bool(success)
         truncated = bool(self.step_count >= self.max_steps)
 
+        # build obs at the end (includes target−palm vector)
+        obs = self._get_obs()
+
         info = {
             "is_success": success,
-            "dist": dist,
-            "dist_xy": dist_xy,
+            "d_target": d_target,
+            "radial": radial,
+            "side_progress": side_progress,
             "touching": touching,
-            "side_pen": side_pen,
             "approach_r": approach_r,
-            "side_align_r": side_align_r,
+            "side_pen": side_pen,
             "inner_barrier": inner_barrier,
             "topdown_pen": topdown_pen,
         }
