@@ -155,8 +155,9 @@
                           <geom name="left_rubber_hand_col" type="box"
                                 pos="0.0415 0.003 0" size="0.028 0.018 0.007"
                                 rgba="0.1 0.4 0.8 0.05"
-                                friction="1.0 0.01 0.0001" contype="1" conaffinity="1"
-                                margin="0.002" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+                                contype="1" conaffinity="1" condim="3" priority="1"
+                                friction="1.0 0.01 0.0001"
+                                margin="0.003" solimp="0.99 0.999 0.0005" solref="0.002 1"/>
 
                           <!-- control/observation site -->
                           <site name="palm_site_left" pos="0.0415 0.003 0" size="0.005" type="sphere" rgba="1 0.2 0.2 1"/>

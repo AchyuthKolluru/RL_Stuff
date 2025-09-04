@@ -11,14 +11,18 @@
 
     <!-- STATIC can directly under worldbody -->
     <body name="can_body" pos="0.42 -0.03 1.03">
-      <!-- MuJoCo cylinder uses size="radius halfheight" -->
-      <geom name="can_geom" type="cylinder" size="0.033 0.06"
-            rgba="0.90 0.20 0.20 1"
-            friction="1.0 0.1 0.01"
-            solref="0.01 1" solimp="0.9 0.95 0.001"
-            contype="1" conaffinity="1"/>
-      <!-- Observation handle for the env -->
-      <site name="can_site" pos="0 0 0" size="0.005" type="sphere" rgba="0.2 0.8 0.2 1"/>
-    </body>
+    <!-- Solid, high-priority contact on bit-1, small margin to avoid tunneling -->
+    <geom name="can_geom" type="cylinder" size="0.03 0.06"
+          rgba="0.9 0.6 0.2 1"
+          contype="1" conaffinity="1" condim="3" priority="1"
+          friction="1.0 0.01 0.0001"
+          margin="0.003"
+          solimp="0.99 0.999 0.0005"
+          solref="0.002 1"/>
+
+    <site name="can_site" pos="0 0 0" size="0.005" type="sphere" rgba="0.2 0.8 0.2 1"/>
+    <!-- If you want it movable for randomization, uncomment the free joint: -->
+    <!-- <joint name="can_free" type="free"/> -->
+  </body>
   </worldbody>
 </mujoco>
