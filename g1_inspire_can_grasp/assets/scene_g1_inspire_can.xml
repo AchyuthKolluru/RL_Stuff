@@ -10,31 +10,38 @@
     <!-- No floor/light here; they live in the robot XML to avoid duplicates -->
 
     <!-- STATIC can directly under worldbody -->
+    <!-- can + visualization sites (REPLACE your existing can_body block with this) -->
     <body name="can_body" pos="0.42 -0.03 1.03">
-    <!-- Solid contact, small skin margin, full 3D friction cone -->
-    <geom name="can_geom" type="cylinder" size="0.03 0.06"
-          rgba="0.9 0.6 0.2 1"
-          contype="1" conaffinity="1" condim="3" priority="1"
-          friction="1.0 0.01 0.0001"
-          margin="0.003"
-          solimp="0.99 0.999 0.0005"
-          solref="0.002 1"/>
+      <!-- Physical can with collisions -->
+      <geom name="can_geom" type="cylinder" size="0.03 0.06"
+            rgba="0.9 0.6 0.2 1"
+            friction="1.0 0.005 0.0001"
+            contype="1" conaffinity="1"
+            margin="0.002" solimp="0.95 0.99 0.001" solref="0.005 1"/>
 
-    <!-- Green center marker (unchanged) -->
-    <site name="can_site"
-      pos="0.04 0 0"
-      size="0.005"
-      type="sphere"
-      rgba="0.2 0.8 0.2 1"/>
+      <!-- (Optional) allow randomization by uncommenting -->
+      <!-- <joint name="can_free" type="free"/> -->
 
-    <!-- Visual “standoff” dots: radius (0.03) + standoff (0.02) = 0.05m from can center in ±Y -->
-    <site name="standoff_right" pos="0 -0.05 0" size="0.006"
-          type="sphere" rgba="1 0 0 1"/>  <!-- for right-hand approach (y negative side) -->
-    <site name="standoff_left"  pos="0  0.05 0" size="0.006"
-          type="sphere" rgba="1 0 0 1"/>  <!-- for left-hand approach (y positive side) -->
+      <!-- ===== VISUALIZATION SITES =====
+          Grey = center (reference only)
+          Green = surface marker (outside the can, +Y)
+          Red   = standoff markers (radius + standoff) on ±Y
+      -->
+      <!-- Center (reference) -->
+      <site name="can_center" pos="0 0 0" size="0.004" type="sphere" rgba="0.6 0.6 0.6 0.5"/>
+
+      <!-- This is the site your env currently reads: move it OUTSIDE the can surface.
+          radius = 0.03; put it at 0.03 + 0.006 margin = 0.036 on +Y so it's clearly visible. -->
+      <site name="can_site" pos="0 0.036 0" size="0.005" type="sphere" rgba="0.2 0.9 0.2 1"/>
+
+      <!-- Standoff markers (what the reward aims for: no-touch, close approach).
+          If your env standoff is 0.02, radius+standoff = 0.05 from center.
+          Put one on each lateral side so you can see both targets. -->
+      <site name="standoff_right" pos="0 0.05 0" size="0.005" type="sphere" rgba="0.9 0.2 0.2 1"/>
+      <site name="standoff_left"  pos="0 -0.05 0" size="0.005" type="sphere" rgba="0.9 0.2 0.2 1"/>
+    </body>
 
     <!-- If you want randomizable can pose, uncomment the free joint -->
     <!-- <joint name="can_free" type="free"/> -->
-  </body>
   </worldbody>
 </mujoco>
