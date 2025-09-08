@@ -69,7 +69,7 @@
             rgba="0.9 0.6 0.2 1" friction="1.0 0.005 0.0001"
             contype="1" conaffinity="1"/>
       <site name="can_site" pos="0 0 0" size="0.006" type="sphere" rgba="0.2 0.8 0.2 1"/>
-      <!-- <joint name="can_free" type="free"/> -->
+      <joint name="can_free" type="free"/>
     </body>
 
     <!-- ===== base & torso (waist joints locked as before) ===== -->
@@ -216,7 +216,7 @@
             <!-- Head camera looking “forward” with ~70° fov (adjust pos/orient if needed) -->
             <camera name="head_cam" pos="0.18 0.0 0.26" euler="0 0 0" fovy="70"/>
 
-            
+
 
             <!-- head (locked to torso; visual only) -->
             <geom type="mesh" mesh="head_link" pos="0.0039635 0 -0.044"
