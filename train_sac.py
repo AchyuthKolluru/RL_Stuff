@@ -1,176 +1,134 @@
 import os
-# Make sure this is set BEFORE importing mujoco/env
 os.environ.setdefault("MUJOCO_GL", "glfw")
-# If you previously exported MUJOCO_EGL, unset it for windowed rendering
-if "MUJOCO_EGL" in os.environ:
-    os.environ.pop("MUJOCO_EGL")
+# If you ever exported MUJOCO_EGL for headless runs, make sure it is unset for windowed rendering:
+os.environ.pop("MUJOCO_EGL", None)
 
-import torch
 import argparse
 import numpy as np
 from pathlib import Path
-import multiprocessing as mp
 
 from stable_baselines3 import SAC
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
-from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 
+# import your env class
 from env_g1_inspire_can import G1InspireCanGrasp
 
 
-class RenderCallback(BaseCallback):
-    """
-    Renders the first environment periodically.
-    For SubprocVecEnv, this uses env_method; for DummyVecEnv, it calls env.render() directly.
-    """
-    def __init__(self, render_every=1):
-        super().__init__()
-        self.render_every = render_every
-
-    def _on_step(self) -> bool:
-        if self.n_calls % self.render_every != 0:
-            return True
-        try:
-            # Works for both DummyVecEnv and SubprocVecEnv
-            if hasattr(self.training_env, "env_method"):
-                self.training_env.env_method("render", indices=0)
-            else:
-                # Fallback (DummyVecEnv)
-                env0 = self.training_env.envs[0]
-                env0.render()
-        except Exception as e:
-            print(f"[RenderCallback] render failed: {e}")
-        return True
-
-
-def make_env(scene_xml, hand, seed, rank, max_steps=400, render_mode="none"):
-    """Factory that creates a single env; exceptions are bubbled up for clear logs."""
-    def _thunk():
-        try:
-            env = G1InspireCanGrasp(
-                scene_xml_path=str(scene_xml),
-                hand=hand,
-                render_mode=render_mode,
-                max_steps=max_steps,
-                randomize_init=True,
-            )
-            env.reset(seed=seed + rank)
-            return env
-        except Exception as e:
-            import traceback, sys
-            print(f"\n[Worker {rank}] Failed to create env:\n{traceback.format_exc()}\n",
-                  file=sys.stderr, flush=True)
-            raise
-    return _thunk
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    # Choose which model to use (legacy 3-finger scene vs new Inspire FTP 5-finger)
-    parser.add_argument("--robot",
-                        choices=["legacy", "ftx"],
-                        default="ftx",
-                        help="Which packaged XML to use: 'legacy' (3-finger scene) or 'ftx' (Inspire FTP 5-finger).")
-    # Optional explicit XML path (overrides --robot)
-    parser.add_argument("--xml", type=str, default=None,
-                        help="Optional path to a specific XML scene file; overrides --robot.")
-    # (Kept for backward compatibility… but --xml / --robot take precedence)
-    parser.add_argument("--scene", type=str,
-                        default="g1_inspire_can_grasp/assets/scene_g1_inspire_can.xml",
-                        help="Legacy scene path (ignored if --xml is provided; for 'legacy' mode).")
-
-    parser.add_argument("--hand", type=str, default="right", choices=["right", "left"])
-    parser.add_argument("--num_envs", type=int, default=8)
-    parser.add_argument("--total_timesteps", type=int, default=200_000)
-    parser.add_argument("--logdir", type=str, default="logs/g1_inspire_can_sac")
-    parser.add_argument("--checkpoint_every_steps", type=int, default=50_000)
-    parser.add_argument("--render_mode", type=str, default="none", choices=["none", "human"])
-
-    args = parser.parse_args()
-
-    # Resolve which XML to load
-    script_dir = Path(__file__).resolve().parent
-    assets_dir = script_dir / "g1_inspire_can_grasp" / "assets"
-    legacy_default = assets_dir / "scene_g1_inspire_can.xml"
-    ftx_default    = assets_dir / "InspireFTX.xml"
-
-    if args.xml is not None:
-        scene_abs = Path(args.xml).expanduser().resolve()
-    else:
-        if args.robot == "legacy":
-            # use the packaged legacy scene (3-finger)
-            scene_abs = (Path(args.scene).expanduser().resolve()
-                         if args.scene else legacy_default)
-        else:
-            # use the new Inspire FTP (5-finger) scene
-            scene_abs = ftx_default
-
-    if not scene_abs.exists():
-        raise FileNotFoundError(f"Cannot find XML at: {scene_abs}")
-
-    print(f"[train_sac] Using scene XML: {scene_abs}")
-
-    # Human rendering must run in the main process → force DummyVec with 1 env
-    if args.render_mode == "human" and args.num_envs != 1:
-        print("[train_sac] NOTE: --render_mode human requires a single env in main process."
-              f" Overriding --num_envs {args.num_envs} → 1.")
-        args.num_envs = 1
-
-    # Best to set spawn inside main on POSIX
-    try:
-        mp.set_start_method("spawn", force=True)
-    except RuntimeError:
-        pass
-
-    torch.set_num_threads(1)
-    os.makedirs(args.logdir, exist_ok=True)
-
-    # Build vectorized env
-    if args.num_envs <= 1:
-        env = DummyVecEnv([make_env(scene_abs, args.hand, seed=42, rank=0,
-                                    render_mode=args.render_mode)])
-    else:
-        env_fns = [make_env(scene_abs, args.hand, seed=42, rank=i,
-                            render_mode=args.render_mode)
-                   for i in range(args.num_envs)]
-        env = SubprocVecEnv(env_fns, start_method="spawn")
-
-    vec_env = VecMonitor(env, filename=None)
-
-    model = SAC(
-        "MlpPolicy",
-        vec_env,
-        learning_rate=1e-4,          # was 3e-4
-        buffer_size=800_000,         # more replay → smoother
-        batch_size=512,              # smaller updates
-        tau=0.01,                    # slower target network updates
-        gamma=0.995,                 # slightly longer horizon
-        train_freq=1,
-        gradient_steps=1,
-        ent_coef="auto_0.1",         # a bit less exploration pressure
-        target_update_interval=1,
-        verbose=1,
-        tensorboard_log=args.logdir,
-        policy_kwargs=dict(net_arch=[512, 512, 256]),
+def make_env(xml_path: Path,
+             hand: str = "right",
+             max_steps: int = 300,
+             render_mode: str = "human",
+             randomize_init: bool = True,
+             rand_scale: float = 1.0):
+    env = G1InspireCanGrasp(
+        scene_xml_path=str(xml_path),
+        hand=hand,
+        render_mode=render_mode,
+        max_steps=max_steps,
+        randomize_init=randomize_init,
     )
+    # optional: curriculum / randomization intensity if your env exposes it
+    if hasattr(env, "set_randomization_scale"):
+        env.set_randomization_scale(rand_scale)
+    return env
 
-    save_freq = max(args.checkpoint_every_steps // max(args.num_envs, 1), 1)
-    ckpt_cb = CheckpointCallback(save_freq=save_freq,
-                                 save_path=args.logdir,
-                                 name_prefix="sac")
 
-    # Render every step when human mode; otherwise render rarely or not at all
-    callback = RenderCallback(render_every=1 if args.render_mode == "human" else 0)
+def run_rollouts(model_path: Path,
+                 xml_path: Path,
+                 episodes: int = 5,
+                 hand: str = "right",
+                 max_steps: int = 750,
+                 render_mode: str = "human",
+                 randomize_init: bool = True,
+                 rand_scale: float = 1.0,
+                 deterministic: bool = True,
+                 seed: int = 123):
+    # Single, plain env (no VecEnv) makes human rendering simplest.
+    env = make_env(xml_path, hand, max_steps, render_mode, randomize_init, rand_scale)
 
-    model.learn(total_timesteps=args.total_timesteps,
-                callback=[cb for cb in [ckpt_cb, callback] if cb],
-                log_interval=10)
-    model.save(os.path.join(args.logdir, "final_sac"))
+    print(f"[eval] Loading model: {model_path}")
+    model = SAC.load(str(model_path))  # env not required for predict()
 
-    vec_env.close()
+    ep_rewards = []
+    successes = []
+    dists = []
+    xy_dists = []
 
+    for ep in range(episodes):
+        obs, _ = env.reset(seed=seed + ep)
+        done = False
+        trunc = False
+        total_r = 0.0
+        steps = 0
+
+        while not (done or trunc):
+            action, _ = model.predict(obs, deterministic=deterministic)
+            obs, reward, done, trunc, info = env.step(action)
+            if render_mode == "human":
+                env.render()
+            total_r += float(reward)
+            steps += 1
+            # env.render() is called inside env when render_mode="human"
+
+            # Collect some diagnostics if present
+            if isinstance(info, dict):
+                if "d_target" in info:
+                    dists.append(info["d_target"])
+                if "radial" in info:
+                    xy_dists.append(info["radial"])
+
+        ep_rewards.append(total_r)
+        successes.append(float(info.get("is_success", False)))
+        print(f"[eval] ep {ep+1}/{episodes}: R={total_r:.2f}  "
+              f"success={bool(info.get('is_success', False))}  steps={steps}")
+
+    env.close()
+
+    # Summary
+    sr = np.mean(successes) if successes else 0.0
+    print("\n=== Evaluation Summary ===")
+    print(f"episodes: {episodes}")
+    print(f"avg reward: {np.mean(ep_rewards):.2f} ± {np.std(ep_rewards):.2f}")
+    print(f"success rate: {sr*100:.1f}%")
+    if dists:
+        print(f"mean target distance (m): {np.mean(dists):.4f}  (lower is better)")
+    if xy_dists:
+        print(f"mean radial distance wrt can (m): {np.mean(xy_dists):.4f}")
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", required=True, help="Path to sac_XXXX_steps.zip or final_sac.zip")
+    ap.add_argument("--xml", required=False, default=None,
+                    help="Path to InspireFTX.xml (defaults to the one next to your train script)")
+    ap.add_argument("--hand", default="right", choices=["right", "left"])
+    ap.add_argument("--episodes", type=int, default=5)
+    ap.add_argument("--max_steps", type=int, default=750)
+    ap.add_argument("--render_mode", choices=["human", "none"], default="human")
+    ap.add_argument("--deterministic", action="store_true", default=True)
+    ap.add_argument("--randomize_init", action="store_true", default=True)
+    ap.add_argument("--rand_scale", type=float, default=1.0)
+    ap.add_argument("--seed", type=int, default=123)
+    args = ap.parse_args()
 
-    # python train_sac.py --robot ftx --num_envs 1 --render_mode human --total_timesteps 1000000
+    script_dir = Path(__file__).resolve().parent
+    # Default XML if not provided: the one you used in training
+    if args.xml is None:
+        xml_default = script_dir / "g1_inspire_can_grasp" / "assets" / "InspireFTX.xml"
+    else:
+        xml_default = Path(args.xml).expanduser().resolve()
+
+    run_rollouts(
+        model_path=Path(args.model).expanduser().resolve(),
+        xml_path=xml_default,
+        episodes=args.episodes,
+        hand=args.hand,
+        max_steps=args.max_steps,
+        render_mode=args.render_mode,
+        randomize_init=args.randomize_init,
+        rand_scale=args.rand_scale,
+        deterministic=args.deterministic,
+        seed=args.seed,
+    )
+
+
+
+# python eval_sac.py   --model logs/g1_inspire_can_sac/sac_4998400_steps.zip   --episodes 10   --hand right   --render_mode human   --randomize_init   --rand_scale 1.0
