@@ -1,18 +1,40 @@
-<body name="can_body" pos="0.42 -0.03 1.03">
-  <!-- Physical can with good contact params -->
-  <geom name="can_geom" type="cylinder" size="0.03 0.06"
-        rgba="0.9 0.6 0.2 1"
-        friction="1.0 0.005 0.0001"
-        contype="1" conaffinity="1"
-        margin="0.003" solimp="0.90 0.99 0.001" solref="0.003 1"/>
-  <!-- Free joint so the env can randomize pose (x,y,z,yaw/pitch/roll) -->
-  <joint name="can_free" type="free"/>
+<mujoco model="scene_g1_inspire_can">
+  <compiler angle="radian"/>
 
-  <!-- viz sites for debugging -->
-  <site name="can_center"  pos="0 0 0"      size="0.004" type="sphere" rgba="0.6 0.6 0.6 0.5"/>
-  <!-- radius = 0.03 → put a green dot at radius+margin on +Y -->
-  <site name="can_site"    pos="0 0.036 0"  size="0.006" type="sphere" rgba="0.2 0.9 0.2 1"/>
-  <!-- standoff markers at radius+standoff (0.05) on ±Y -->
-  <site name="standoff_right" pos="0  0.05 0" size="0.006" type="sphere" rgba="0.9 0.2 0.2 1"/>
-  <site name="standoff_left"  pos="0 -0.05 0" size="0.006" type="sphere" rgba="0.9 0.2 0.2 1"/>
-</body>
+  <!-- Numerics -->
+  <option timestep="0.002" integrator="Euler" cone="pyramidal"
+          jacobian="dense" iterations="80" tolerance="1e-9"/>
+
+  <!-- Visuals -->
+  <statistic center="1.0 0.7 1.0" extent="0.8"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0.9 0.9 0.9"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-140" elevation="-20"/>
+  </visual>
+
+  <!-- Assets (ground texture) -->
+  <asset>
+    <texture type="skybox" builtin="flat" rgb1="0 0 0" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge"
+             rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <!-- Light and ground -->
+    <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" rgba="0.2 0.25 0.3 1"/>
+
+    <!-- === Target can with FREE joint (env expects joint name 'can_free') === -->
+    <!-- Place it near the robot work area; env will randomize if randomize_init=True -->
+    <body name="can_body" pos="0.45 0.00 1.02">
+      <joint name="can_free" type="free"/>
+      <geom name="can_geom" type="cylinder" size="0.03 0.06"
+            rgba="0.9 0.6 0.2 1"
+            friction="1.0 0.005 0.0001"
+            contype="1" conaffinity="1"/>
+      <site name="can_site" pos="0 0 0" size="0.006" type="sphere" rgba="0.2 0.8 0.2 1"/>
+    </body>
+  </worldbody>
+</mujoco>
