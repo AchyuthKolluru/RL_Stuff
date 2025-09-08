@@ -281,7 +281,7 @@ class G1InspireCanGrasp(gym.Env):
         Xc, ok = self._world_to_cam(Xw)
         if not ok: return None, False
         u = self.cam_fx * (Xc[0] / Xc[2]) + self.cam_cx
-               v = self.cam_fy * (Xc[1] / Xc[2]) + self.cam_cy
+        v = self.cam_fy * (Xc[1] / Xc[2]) + self.cam_cy
         return np.array([u, v], dtype=np.float32), True
 
     def get_headcam_rgb(self):
