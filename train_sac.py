@@ -260,3 +260,9 @@ if __name__ == "__main__":
 #   python train_sac.py --robot ftx --num_envs 8  --total_timesteps 1000000
 #   python train_sac.py --robot ftx --num_envs 1  --render_mode human --total_timesteps 100000
 #   python train_sac.py --xml g1_inspire_can_grasp/assets/InspireFTX_headcam.xml --num_envs 8
+
+
+# python train_sac.py \
+#   --xml g1_inspire_can_grasp/assets/InspireFTX_headcam.xml \
+#   --num_envs 64 \
+#   --total_timesteps 10000000

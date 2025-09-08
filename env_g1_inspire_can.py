@@ -184,6 +184,13 @@ class G1InspireCanGrasp(gym.Env):
         self.rand_scale  = float(init_rand_scale)
         self.auto_choose_nearer_side = bool(auto_choose_nearer_side)
 
+        # === grasping target parameters ===
+        self.standoff      = float(standoff)
+        self.standoff_tol  = float(standoff_tol)
+        self.side_margin   = float(side_margin)
+        self.touch_penalty = float(touch_penalty)
+        self.ctrl_cost_scale = float(ctrl_cost_scale)
+
         # can shape/ids
         self.can_gid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "can_geom")
         if self.can_gid < 0:
