@@ -192,17 +192,17 @@ class G1InspireCanGrasp(gym.Env):
         self.ctrl_cost_scale = float(ctrl_cost_scale)
 
         # can shape/ids
-        self.can_gid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "can_geom")
-        if self.can_gid < 0:
-            raise RuntimeError("Geom 'can_geom' not found.")
+        self.can_bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "can_body")
+        if self.can_bid < 0:
+            raise RuntimeError("Body 'can_body' not found.")
         sz = self.model.geom_size[self.can_gid].copy()
         self.can_radius = float(sz[0]); self.can_half_h = float(sz[1])
         self._base_can_size = sz.copy()
         self._base_can_fric = self.model.geom_friction[self.can_gid].copy()
         self.min_radial_gap = self.can_radius + 0.006
         self.can_free = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "can_free")
-        if self.can_free < 0 and self.randomize_init:
-            print("[env] WARNING: randomize_init=True but can has no free joint; pose randomization will be limited.")
+        if self.can_free < 0:
+            print("[env] INFO: can has no free joint; will randomize pose by editing model.body_pos/body_quat (fixed in air).")
 
         # palm site
         self.palm_sid = named_site_id(self.model, self.palm_site_name)
@@ -341,15 +341,14 @@ class G1InspireCanGrasp(gym.Env):
         self.model.geom_friction[self.can_gid] = fr * (1.0 + np.random.uniform(-g,+g, size=3))
 
     def _randomize_pose(self):
-        if self.can_free < 0:  # nothing to randomize
-            return
-        self._domain_randomize_can()
-        adr = self.model.jnt_qposadr[self.can_free]
-        s   = self.rand_scale
-        x0,y0,z0 = self.ws_center
-        hx,hy,hz = self.ws_half
+        """Randomize can pose per episode.
+        - If the can has a free joint (can_free >= 0): randomize via qpos.
+        - Else (fixed body): randomize by writing to model.body_pos/body_quat."""
+        s = self.rand_scale
+        x0, y0, z0 = self.ws_center
+        hx, hy, hz = self.ws_half
 
-        # Hand-aware Y region: right→[0, +hy], left→[-hy, 0]
+        # Hand-aware Y region: right→[0,+hy], left→[-hy,0]
         if self.right_side:
             y = y0 + np.random.uniform(0, +hy*s)
         else:
@@ -357,23 +356,37 @@ class G1InspireCanGrasp(gym.Env):
 
         x = x0 + np.random.uniform(-hx*s, +hx*s)
         z = z0 + np.random.uniform(-hz*s, +hz*s)
-        self.data.qpos[adr:adr+3] = np.array([x,y,z], dtype=np.float64)
 
-        yaw   = np.random.uniform(-self.yaw_range*s, +self.yaw_range*s)
+        # Small random yaw/tilt
+        yaw   = np.random.uniform(-self.yaw_range*s,   +self.yaw_range*s)
         pitch = np.random.uniform(-self.pitch_range*s, +self.pitch_range*s)
         roll  = np.random.uniform(-self.roll_range*s,  +self.roll_range*s)
 
-        cy,sy = math.cos(yaw/2),   math.sin(yaw/2)
-        cp,sp = math.cos(pitch/2), math.sin(pitch/2)
-        cr,sr = math.cos(roll/2),  math.sin(roll/2)
+        cy, sy = math.cos(yaw/2),   math.sin(yaw/2)
+        cp, sp = math.cos(pitch/2), math.sin(pitch/2)
+        cr, sr = math.cos(roll/2),  math.sin(roll/2)
         qw = cr*cp*cy + sr*sp*sy
         qx = sr*cp*cy - cr*sp*sy
         qy = cr*sp*cy + sr*cp*sy
         qz = cr*cp*sy - sr*sp*cy
-        self.data.qpos[adr+3:adr+7] = np.array([qw,qx,qy,qz], dtype=np.float64)
 
-        dof = self.model.jnt_dofadr[self.can_free]
-        self.data.qvel[dof:dof+6] = 0.0
+        # === size/friction jitter (optional) ===
+        self._domain_randomize_can()
+
+        if hasattr(self, "can_free") and self.can_free >= 0:
+            # Free-jointed can → randomize via qpos
+            adr = self.model.jnt_qposadr[self.can_free]
+            self.data.qpos[adr:adr+3]     = np.array([x, y, z], dtype=np.float64)
+            self.data.qpos[adr+3:adr+7]   = np.array([qw, qx, qy, qz], dtype=np.float64)
+            dof = self.model.jnt_dofadr[self.can_free]
+            self.data.qvel[dof:dof+6]     = 0.0
+        else:
+            # FIXED can → randomize by editing model body frame
+            self.model.body_pos[self.can_bid]  = np.array([x, y, z], dtype=np.float64)
+            self.model.body_quat[self.can_bid] = np.array([qw, qx, qy, qz], dtype=np.float64)
+
+        # Recompute transforms
+        mujoco.mj_forward(self.model, self.data)
 
     # ---------- locks ----------
     def _record_freezes(self):

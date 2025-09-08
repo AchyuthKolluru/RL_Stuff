@@ -64,12 +64,15 @@
     <body name="world_anchor"/>
 
     <!-- ===== target can (unchanged) ===== -->
-    <body name="can_body" pos="0.42 -0.03 1.03">
-      <geom name="can_geom" type="cylinder" size="0.03 0.06"
-            rgba="0.9 0.6 0.2 1" friction="1.0 0.005 0.0001"
+    <!-- Floating can at torso height (FIXED body: no joint) -->
+    <body name="can_body" pos="0.45 0.00 1.02">
+    <!-- No joint here → body is fixed in world coordinates -->
+    <geom name="can_geom" type="cylinder" size="0.03 0.06"
+            rgba="0.9 0.6 0.2 1"
+            friction="1.0 0.005 0.0001"
             contype="1" conaffinity="1"/>
-      <site name="can_site" pos="0 0 0" size="0.006" type="sphere" rgba="0.2 0.8 0.2 1"/>
-      <joint name="can_free" type="free"/>
+    <!-- Optional site at the can center for debug/markers -->
+    <site name="can_site" pos="0 0 0" size="0.006" type="sphere" rgba="0.2 0.8 0.2 1"/>
     </body>
 
     <!-- ===== base & torso (waist joints locked as before) ===== -->
