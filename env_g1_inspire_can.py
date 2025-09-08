@@ -195,6 +195,12 @@ class G1InspireCanGrasp(gym.Env):
         self.can_bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "can_body")
         if self.can_bid < 0:
             raise RuntimeError("Body 'can_body' not found.")
+        # >>> FIX: resolve can geometry id before using it
+        self.can_gid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "can_geom")
+        if self.can_gid < 0:
+            raise RuntimeError("Geom 'can_geom' not found.")
+        # <<<
+
         sz = self.model.geom_size[self.can_gid].copy()
         self.can_radius = float(sz[0]); self.can_half_h = float(sz[1])
         self._base_can_size = sz.copy()
@@ -207,7 +213,7 @@ class G1InspireCanGrasp(gym.Env):
         # palm site
         self.palm_sid = named_site_id(self.model, self.palm_site_name)
 
-        # wrist & other‑side locks
+        # wrist & other-side locks
         self.freeze_other = bool(freeze_other)
         self.wrist_jids = _joint_ids(self.model, self.wrist_joint_names)
         self.other_jids = _joint_ids(self.model, self.other_joint_names)
@@ -275,7 +281,7 @@ class G1InspireCanGrasp(gym.Env):
         Xc, ok = self._world_to_cam(Xw)
         if not ok: return None, False
         u = self.cam_fx * (Xc[0] / Xc[2]) + self.cam_cx
-        v = self.cam_fy * (Xc[1] / Xc[2]) + self.cam_cy
+               v = self.cam_fy * (Xc[1] / Xc[2]) + self.cam_cy
         return np.array([u, v], dtype=np.float32), True
 
     def get_headcam_rgb(self):
