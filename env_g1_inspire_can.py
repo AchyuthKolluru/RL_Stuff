@@ -111,6 +111,13 @@ class G1InspireCanGrasp(gym.Env):
                  headcam_size=(640, 480),
                  headcam_for_eval_only: bool = True,
                  auto_choose_nearer_side: bool = False,   # IMPORTANT: fixed-right/right, fixed-left/left
+
+                 # --- debug draw / target viz ---
+                 debug_draw_target: bool = True,
+                 target_marker_size: float = 0.18,   # BIG sphere at the target (meters)
+                 ring_marker_size: float = 0.01,     # small spheres to draw the standoff ring
+                 ring_segments: int = 36,            # how many points for the ring
+                 arrow_thickness: float = 0.01,      # thickness for palm->target arrow
                  **kwargs):
         if kwargs:
             import warnings
@@ -232,6 +239,12 @@ class G1InspireCanGrasp(gym.Env):
         self.side_margin   = float(side_margin)
         self.touch_penalty = float(touch_penalty)
         self.ctrl_cost_scale = float(ctrl_cost_scale)
+
+        self.debug_draw_target = bool(debug_draw_target)
+        self.target_marker_size = float(target_marker_size)
+        self.ring_marker_size = float(ring_marker_size)
+        self.ring_segments = int(ring_segments)
+        self.arrow_thickness = float(arrow_thickness)
 
         # can ids (BOTH body and geom) and sizes
         self.can_bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "can_body")
@@ -386,6 +399,14 @@ class G1InspireCanGrasp(gym.Env):
         R   = self.data.geom_xmat[self.can_gid].reshape(3,3).copy()
         y_axis = R[:,1]; z_axis = R[:,2]
         return pos, y_axis, z_axis, R
+    
+    def set_standoff(self, new_standoff: float):
+        """Move the target further/closer from the can surface (meters)."""
+        self.standoff = float(max(0.0, new_standoff))
+
+    def set_auto_side(self, enable: bool):
+        """Choose side automatically (True) or fixed by hand side (False)."""
+        self.auto_choose_nearer_side = bool(enable)
 
     def _target_pos(self):
         can_center, y_axis, _, _ = self._can_frame()
@@ -765,17 +786,82 @@ class G1InspireCanGrasp(gym.Env):
             raise RuntimeError("mujoco.viewer not available; set MUJOCO_GL=glfw and install mujoco>=2.3.6.")
         if self.viewer is None:
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
-        else:
-            mujoco.mj_forward(self.model, self.data)
-            # Big target marker so you can SEE it
-            try:
-                pos = self._target_pos()
-                self.viewer.add_marker(pos=pos, size=(0.07,0.07,0.07),
-                                       rgba=(1,0,1,0.9), type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                                       label="TARGET")
-            except Exception:
-                pass
-            self.viewer.sync()
+            return
+
+        # Keep sim transforms fresh
+        mujoco.mj_forward(self.model, self.data)
+
+        # Always draw a big target marker so it's obvious
+        try:
+            target = self._target_pos()
+            can_center, y_axis, z_axis, _ = self._can_frame()
+            palm = self.data.site_xpos[self.palm_sid].copy()
+            ring_r = self.can_radius + self.standoff
+
+            # 1) Big sphere at the target
+            if self.debug_draw_target:
+                self.viewer.add_marker(
+                    pos=target,
+                    size=(self.target_marker_size,)*3,    # BIG, clearly visible
+                    rgba=(1.0, 0.0, 1.0, 0.8),            # magenta, mostly opaque
+                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                    label="TARGET"
+                )
+
+                # 2) Draw the standoff ring (circle around the can axis at the chosen side)
+                # The ring is a circle in the plane orthogonal to z_axis, centered at:
+                # can_center + sgn * ring_r * y_axis  (same lateral offset as the target)
+                sgn = -1.0 if (self.auto_choose_nearer_side and np.dot(palm - can_center, y_axis) >= 0) \
+                            else (-1.0 if self.right_side else +1.0)
+                ring_center = can_center + sgn * ring_r * y_axis
+
+                # Build an orthonormal basis (u,v) spanning the circle plane (perpendicular to z_axis)
+                z = z_axis / (np.linalg.norm(z_axis) + 1e-9)
+                # pick any vector not parallel to z to start
+                tmp = np.array([1.0, 0.0, 0.0])
+                if abs(np.dot(tmp, z)) > 0.9:
+                    tmp = np.array([0.0, 1.0, 0.0])
+                u = np.cross(z, tmp); u /= (np.linalg.norm(u) + 1e-9)
+                v = np.cross(z, u)
+
+                segs = max(8, self.ring_segments)
+                for k in range(segs):
+                    th = 2.0*np.pi*k/segs
+                    p = ring_center + ring_r*(math.cos(th)*u + math.sin(th)*v)
+                    self.viewer.add_marker(
+                        pos=p,
+                        size=(self.ring_marker_size,)*3,
+                        rgba=(0.2, 0.8, 1.0, 0.8),        # bright cyan
+                        type=mujoco.mjtGeom.mjGEOM_SPHERE
+                    )
+
+                # 3) Arrow from palm → target (helps see approach direction)
+                # MuJoCo marker: use a capsule as an "arrow shaft"
+                mid = 0.5*(palm + target)
+                vec = target - palm
+                L = float(np.linalg.norm(vec)) + 1e-9
+                dirn = vec / L
+                # Build a rotation matrix whose x-axis aligns with dirn
+                # Make y,z orthonormal (any stable choice is fine for a marker)
+                x = dirn
+                t = np.array([0.0, 0.0, 1.0]) if abs(dirn[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+                y = np.cross(t, x); y /= (np.linalg.norm(y) + 1e-9)
+                z = np.cross(x, y)
+                xmat = np.column_stack([x, y, z]).reshape(-1)
+
+                self.viewer.add_marker(
+                    pos=mid,                 # center of the capsule
+                    size=(0.5*L, self.arrow_thickness, self.arrow_thickness),
+                    mat=xmat,
+                    rgba=(1.0, 0.5, 0.0, 0.8),  # orange
+                    type=mujoco.mjtGeom.mjGEOM_CAPSULE
+                )
+
+        except Exception:
+            # non-fatal draw issues should not crash rendering
+            pass
+
+    self.viewer.sync()
 
     def close(self):
         if self.viewer is not None:
