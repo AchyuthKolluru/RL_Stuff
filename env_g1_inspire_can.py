@@ -306,6 +306,25 @@ class G1InspireCanGrasp(gym.Env):
         self._maybe_setup_headcam_intrinsics()
         self._off_renderer = None  # allocated lazily to avoid overhead in training
 
+        # --- success latch / near-field damping (NEW) ---
+        self.success_deadband = 0.004      # m; tolerate tiny motion while "on target"
+        self.success_hold_steps = 15       # frames to hold before terminating
+        self._hold_counter = 0
+
+        # --- near-field PD softening (NEW) ---
+        self.near_d_target = 0.03          # m; within this, soften PD / torques
+        self.near_kp_scale = 0.5
+        self.near_kd_scale = 0.5
+
+        # --- action smoothing (NEW) ---
+        self.action_smoothing = 0.2        # EMA coeff (0 none .. 1 very smooth)
+        self._prev_action = None
+
+        # --- smooth barrier against going inside (NEW) ---
+        self.barrier_margin = 0.003        # treat as "soft" can that's slightly larger
+        self.barrier_k = 600.0             # strength of smooth wall
+        self.barrier_terminate_mm = 2.0    # terminate if >2mm inside (still)
+
         # misc
         self.viewer = None
         self._prev_d = None
@@ -501,11 +520,25 @@ class G1InspireCanGrasp(gym.Env):
 
         # PD reference starts at current
         self.des_q = self.data.qpos[self.ctrl_qadr].copy()
-        self.step_count = 0; self._prev_d = None
+        self.step_count = 0
+        self._prev_d = None
+        self._prev_action = None     # NEW: reset smoothing state
+        self._hold_counter = 0       # NEW: reset latch
 
         return self._get_obs(), {}
 
-    def _apply_action(self, action):
+    # ---------- control (EMA smoothing + near-field scaling) ----------
+    def _apply_action(self, action, near_scale: float = 1.0):
+        # --- EMA action smoothing ---
+        if self._prev_action is None:
+            self._prev_action = np.clip(action, -1.0, 1.0).astype(np.float64)
+        else:
+            self._prev_action = (
+                self.action_smoothing * self._prev_action
+                + (1.0 - self.action_smoothing) * np.clip(action, -1.0, 1.0)
+            )
+        action = self._prev_action
+
         action = np.clip(action, -1.0, 1.0).astype(np.float64)
         proposed = self.des_q + self.action_scale * action
         proposed = np.clip(proposed, self.ctrl_range[:,0], self.ctrl_range[:,1])
@@ -514,7 +547,12 @@ class G1InspireCanGrasp(gym.Env):
 
         q  = self.data.qpos[self.ctrl_qadr].astype(np.float64)
         qd = self.data.qvel[self.ctrl_dadr].astype(np.float64)
-        tau = self.kp_vec*(self.des_q - q) - self.kd_vec*qd
+
+        # scale PD when near the target to reduce oscillations
+        kp_vec = self.kp_vec * near_scale
+        kd_vec = self.kd_vec * near_scale
+
+        tau = kp_vec*(self.des_q - q) - kd_vec*qd
         tau = np.clip(tau, -self.torque_limit_vec[:len(tau)], self.torque_limit_vec[:len(tau)])
         self.data.ctrl[:] = 0.0
         self.data.ctrl[self.ctrl_act_ids] = tau
@@ -531,9 +569,21 @@ class G1InspireCanGrasp(gym.Env):
         return np.concatenate([q, qd, can_center, can_quat, rel]).astype(np.float32)
 
     def step(self, action):
-        # keep locks + apply PD control
+        # keep locks
         self._enforce_freezes()
-        self._apply_action(action)
+
+        # pre-forward to compute near-field scale
+        mujoco.mj_forward(self.model, self.data)
+        palm_pre = self.data.site_xpos[self.palm_sid].copy()
+        can_center_pre, _, _, _ = self._can_frame()
+        target_pre = self._target_pos()
+        d_target_pre = float(np.linalg.norm(target_pre - palm_pre))
+
+        # near-field PD softening
+        near_scale = (self.near_kp_scale if d_target_pre < self.near_d_target else 1.0)
+
+        # apply action with near-scale and integrate
+        self._apply_action(action, near_scale=near_scale)
         for _ in range(5):
             mujoco.mj_step(self.model, self.data)
             self._enforce_freezes()
@@ -544,24 +594,23 @@ class G1InspireCanGrasp(gym.Env):
         can_center, y_axis, z_axis, _ = self._can_frame()
         target = self._target_pos()
 
-        # shoulder world-frame position (MuJoCo 2.3+: body world pos is xipos/xpos)
+        # shoulder world-frame position
         try:
-            shoulder = self.data.xipos[self.shoulder_bid].copy()  # world anchor of body
+            shoulder = self.data.xipos[self.shoulder_bid].copy()
         except Exception:
-            # fallback for older builds
             shoulder = self.data.body_xpos[self.shoulder_bid].copy()
 
         # orientation terms (palm frame)
         R_palm = self.data.site_xmat[self.palm_sid].reshape(3, 3).copy()
-        palm_forward = R_palm[:, 0]   # +X = fingers forward
-        palm_up      = R_palm[:, 2]   # +Z = palm normal (should align with world Z)
+        palm_forward = R_palm[:, 0]
+        palm_up      = R_palm[:, 2]
         world_z = np.array([0.0, 0.0, 1.0], dtype=np.float64)
 
         # --- distances & ring geometry
-        vec_cp = palm - can_center
-        vec_perp = vec_cp - np.dot(vec_cp, z_axis) * z_axis  # lateral (XY) vector to can axis
-        radial = float(np.linalg.norm(vec_perp))             # distance from cylinder axis
-        ring_r = self.can_radius + self.standoff
+        vec_cp   = palm - can_center
+        vec_perp = vec_cp - np.dot(vec_cp, z_axis) * z_axis
+        radial   = float(np.linalg.norm(vec_perp))
+        ring_r   = self.can_radius + self.standoff
         near_lateral = radial < (ring_r + 0.015)
 
         d_target = float(np.linalg.norm(target - palm))
@@ -586,8 +635,6 @@ class G1InspireCanGrasp(gym.Env):
         nc = np.linalg.norm(look_dir) + 1e-9
         look_dir /= nc
         look_dot = float(np.clip(np.dot(palm_forward, look_dir), -1.0, 1.0))
-
-        # Gate weights: stronger when near the lateral surface
         orient_gain = 1.0 + (2.0 if near_lateral else 0.0)
         upright_pen = orient_gain * self.upright_coef * (1.0 - max(0.0, upright_dot))
         lookat_pen  = orient_gain * self.lookat_coef  * (1.0 - max(0.0, look_dot))
@@ -596,65 +643,53 @@ class G1InspireCanGrasp(gym.Env):
         dist_sc   = float(np.linalg.norm(can_center - shoulder))  # shoulder→can
         reach_len = float(np.linalg.norm(palm - shoulder))        # shoulder→palm
 
-        # elbow preference: blend from a slightly flexed angle near to a straighter angle far
         elbow_pen = 0.0
-        q_el = None
         if self.elbow_qadr is not None:
             q_el = float(self.data.qpos[self.elbow_qadr])
-
-            # Always keep it sane (global pref)
             elbow_pen = self.elbow_coef * (q_el - self.elbow_pref) ** 2
-
-            # Blend toward extension as can gets further from shoulder
             if self.elbow_far_full > self.elbow_far_start:
                 t = (dist_sc - self.elbow_far_start) / (self.elbow_far_full - self.elbow_far_start)
-                t = float(np.clip(t, 0.0, 1.0))  # 0=near, 1=far
+                t = float(np.clip(t, 0.0, 1.0))
                 elbow_target = (1.0 - t) * self.elbow_close_target + t * self.elbow_far_target
                 elbow_pen += self.elbow_adapt_coef * (q_el - elbow_target) ** 2
-
-            # When we are right near the lateral surface, keep a touch more flex for safety
             if near_lateral:
                 elbow_pen += self.elbow_close_coef * (q_el - self.elbow_close_target) ** 2
 
-        # encourage longer reach when far (but clamp so it doesn't overshoot)
+        # encourage longer reach when far (clamped)
         desired_len = dist_sc - (self.can_radius + self.standoff + 0.02)
         desired_len = float(np.clip(desired_len, self.reach_min, self.reach_max))
         reach_deficit = max(0.0, desired_len - reach_len)
         reach_out_pen = self.reach_out_coef * (reach_deficit ** 2)
 
-        # --- ring shaping (pull to standoff circle but never into the can)
+        # --- ring shaping
         ring_dev = abs(radial - ring_r)
         ring_shaping = - self.ring_shaping_w * ring_dev
 
-        # --- anti-penetration: huge penalty if inside; optional auto-terminate
-        penetration = max(0.0, self.can_radius - radial)  # >0 means inside the physical can
-        inner_barrier = 0.0
-        hard_violate  = False
-        if penetration > 0.0:
-            # very steep cost; d^2 is usually enough if the coefficient is large
-            inner_barrier = 800.0 * (penetration ** 2)     # ### NEW: stronger wall
-            # optionally hard-terminate to teach avoidance
-            if penetration > 0.002:                        # >2 mm inside
-                hard_violate = True
+        # --- smooth anti-penetration barrier (soft wall)
+        signed_gap = (radial - (self.can_radius + self.barrier_margin))  # >0 outside; <0 inside
+        if signed_gap >= 0.0:
+            inner_barrier = 0.0
+            penetration = 0.0
+        else:
+            penetration = -signed_gap
+            inner_barrier = self.barrier_k * (penetration ** 2)
 
-        # top-down penalty only when near the wall (don’t push down from above)
+        # top-down penalty only near the wall
         topdown_pen = 0.0
         if near_lateral:
             vertical_dev = abs(float(np.dot(vec_cp, z_axis)))
             topdown_pen = 0.2 * max(0.0, vertical_dev - self.can_half_h * 0.4)
 
-        # contacts + control effort
         touching = self._touching_can()
         touch_pen = self.touch_penalty if touching else 0.0
+
         ctrl_pen  = self.ctrl_cost_scale * float(np.sum(self.data.ctrl[self.ctrl_act_ids] ** 2))
         qd = self.data.qvel[self.ctrl_dadr]
         vel_smooth = 1e-4 * float(np.sum(qd ** 2))
 
-        # base approach terms
         approach_r = self.progress_coef * progress
         dense_dist = - self.dist_reward_w * d_target
 
-        # total reward
         reward = (
             approach_r
             + ring_shaping
@@ -672,12 +707,26 @@ class G1InspireCanGrasp(gym.Env):
             - reach_out_pen
         )
 
+        # --- success + hold latch (stops motion when close enough)
+        close_enough = (d_target <= (self.standoff_tol + self.success_deadband)) and (side_violation == 0.0) and (penetration == 0.0)
+        if close_enough and not touching:
+            self._hold_counter += 1
+            # freeze the controller during hold
+            self.des_q = self.data.qpos[self.ctrl_qadr].copy()
+            self.data.ctrl[self.ctrl_act_ids] = 0.0
+        else:
+            self._hold_counter = 0
+
+        success = (self._hold_counter >= self.success_hold_steps)
+
+        # hard terminate if deeply inside (safety)
+        hard_violate = (penetration * 1000.0) > self.barrier_terminate_mm
+
         self.step_count += 1
-        success = (d_target < self.standoff_tol) and (side_violation == 0.0) and (not touching) and (penetration == 0.0)
-        terminated = bool(success or hard_violate)          # ### NEW: terminate if it went inside
+        terminated = bool(success or hard_violate)
         truncated  = bool(self.step_count >= self.max_steps)
 
-        # --- head-cam info (unchanged)
+        # --- head-cam info
         headcam_seen, head_uv, head_dist = False, None, None
         if self.enable_headcam and self.cam_id >= 0:
             head_uv, ok = self._project(can_center)
@@ -689,18 +738,19 @@ class G1InspireCanGrasp(gym.Env):
         obs = self._get_obs()
         info = {
             "is_success": success,
+            "hold_counter": self._hold_counter,
             "d_target": d_target,
             "radial": radial,
             "approach_r": approach_r,
             "ring_dev": ring_dev,
             "side_pen": side_pen,
             "inner_barrier": inner_barrier,
-            "penetration": penetration,                 # ### NEW: for logging
+            "penetration": penetration,
             "topdown_pen": topdown_pen,
             "upright_pen": upright_pen,
             "lookat_pen": lookat_pen,
             "elbow_pen": elbow_pen,
-            "reach_out_pen": reach_out_pen,             # ### NEW: for logging
+            "reach_out_pen": reach_out_pen,
             "headcam_seen": headcam_seen,
             "headcam_uv": None if head_uv is None else head_uv.tolist(),
             "headcam_dist_m": head_dist,
