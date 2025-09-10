@@ -861,7 +861,7 @@ class G1InspireCanGrasp(gym.Env):
             # non-fatal draw issues should not crash rendering
             pass
 
-    self.viewer.sync()
+        self.viewer.sync()
 
     def close(self):
         if self.viewer is not None:
