@@ -248,10 +248,10 @@
                         rgba="0.7 0.7 0.7 1" mesh="left_shoulder_yaw_link"/>
 
                   <!-- upper-arm collision (unchanged) -->
-                  <geom name="left_upperarm_col" type="capsule"
+                  <!-- <geom name="left_upperarm_col" type="capsule"
                         fromto="0.02 0 -0.02   0.02 0 -0.20" size="0.03"
                         rgba="0 0.5 1 0.05" contype="1" conaffinity="1"
-                        friction="0.8 0.01 0.0001" margin="0.002"/>
+                        friction="0.8 0.01 0.0001" margin="0.002"/> -->
 
                   <body name="left_elbow_link" pos="0.015783 0 -0.080518">
                     <inertial pos="0.064956 0.004454 -0.010062" quat="0.541765 0.636132 0.388821 0.388129"
@@ -261,10 +261,10 @@
                           rgba="0.7 0.7 0.7 1" mesh="left_elbow_link"/>
 
                     <!-- forearm collision (unchanged) -->
-                    <geom name="left_forearm_col" type="capsule"
+                    <!-- <geom name="left_forearm_col" type="capsule"
                           fromto="0.02 0 0   0.14 0 -0.01" size="0.025"
                           rgba="0 0.5 1 0.05" contype="1" conaffinity="1"
-                          friction="0.8 0.01 0.0001" margin="0.002"/>
+                          friction="0.8 0.01 0.0001" margin="0.002"/> -->
 
                     <body name="left_wrist_roll_link" pos="0.1 0.00188791 -0.01">
                       <inertial pos="0.0171394 0.000537591 0" quat="0.575338 0.411667 -0.574906 0.411094"
@@ -330,10 +330,11 @@
                         rgba="0.7 0.7 0.7 1" mesh="right_shoulder_yaw_link"/>
 
                   <!-- upper-arm collision (unchanged) -->
-                  <geom name="right_upperarm_col" type="capsule"
-                        fromto="0.02 0 -0.02   0.02 0 -0.20" size="0.03"
-                        rgba="0 0.5 1 0.05" contype="1" conaffinity="1"
-                        friction="0.8 0.01 0.0001" margin="0.002"/>
+                  <!-- <geom name="right_upperarm_col" type="capsule"
+                        fromto="0 0 0.01   0 0 -0.23" size="0.028"
+                        rgba="0 1 1 0.15" contype="1" conaffinity="1"
+                        friction="1.0 0.01 0.0001" margin="0.001"/> -->
+
 
                   <body name="right_elbow_link" pos="0.015783 0 -0.080518">
                     <inertial pos="0.064956 -0.004454 -0.010062" quat="0.388129 0.388821 0.636132 0.541765"
@@ -343,10 +344,10 @@
                           rgba="0.7 0.7 0.7 1" mesh="right_elbow_link"/>
 
                     <!-- forearm collision (unchanged) -->
-                    <geom name="right_forearm_col" type="capsule"
+                    <!-- <geom name="right_forearm_col" type="capsule"
                           fromto="0.02 0 0   0.14 0 -0.01" size="0.025"
                           rgba="0 0.5 1 0.05" contype="1" conaffinity="1"
-                          friction="0.8 0.01 0.0001" margin="0.002"/>
+                          friction="0.8 0.01 0.0001" margin="0.002"/> -->
 
                     <body name="right_wrist_roll_link" pos="0.1 -0.00188791 -0.01">
                       <inertial pos="0.0171394 -0.000537591 0" quat="0.411667 0.575338 -0.411094 0.574906"
