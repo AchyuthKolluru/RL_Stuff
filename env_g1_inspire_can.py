@@ -53,8 +53,8 @@ class G1InspireCanGrasp(gym.Env):
                  max_steps: int = 300,
                  randomize_init: bool = True,
                  # --- target geometry ---
-                 standoff: float = 0.015,           # desired gap beyond can radius
-                 standoff_tol: float = 0.008,       # success threshold
+                 standoff: float = 0.015,           # desired gap beyond can radius (base)
+                 standoff_tol: float = 0.008,       # success threshold (point target)
                  side_margin: float = 0.010,        # margin along Y-axis side test
                  # --- rewards/penalties ---
                  progress_coef: float = 200.0,      # stronger pull toward target
@@ -66,7 +66,7 @@ class G1InspireCanGrasp(gym.Env):
                  ctrl_cost_scale: float = 1e-3,
                  upright_coef: float = 4.0,         # keep palm parallel to ground (softer)
                  lookat_coef: float  = 5.0,         # keep palm facing can (softer)
-                 elbow_pref: float   = 1.0,        # favor extension vs curling
+                 elbow_pref: float   = 1.0,         # favor extension vs curling
                  elbow_coef: float   = 0.60,
                  elbow_close_target: float   = 1.15,
                  elbow_close_coef: float   = 0.80,
@@ -74,7 +74,6 @@ class G1InspireCanGrasp(gym.Env):
                  # --- distance-adaptive reach shaping (training-time) ---
                  elbow_far_target: float = 0.45,   # ~26° (more extended) when far
                  elbow_adapt_coef: float  = 0.60,  # weight for adaptive elbow target
-                 # distance (shoulder->can) where we start/finish preferring the extended elbow
                  elbow_far_start: float   = 0.22,  # m  (start blending to extension)
                  elbow_far_full:  float   = 0.36,  # m  (fully prefer elbow_far_target)
 
@@ -88,7 +87,7 @@ class G1InspireCanGrasp(gym.Env):
                  reach_assist_gain: float = 0.5,   # [0..1] how strong the bias is
 
                  # --- control ---
-                 action_scale: float = 0.010,       # bigger per-step intent → easier to reach
+                 action_scale: float = 0.010,       # base per-step intent
                  kp: float = 12.0,
                  kd: float = 1.5,
                  torque_limits=(18, 14, 14, 10),    # a bit more authority
@@ -97,7 +96,6 @@ class G1InspireCanGrasp(gym.Env):
                  domain_randomize: bool = True,
                  size_jitter_frac: float = 0.10,
                  friction_jitter_frac: float = 0.25,
-                 # workspace center & half ranges (m)
                  workspace_center=(0.45, 0.0, 1.02),
                  workspace_half_range=(0.10, 0.15, 0.04),
                  lateral_half_range: float | None = 0.08,
@@ -118,6 +116,34 @@ class G1InspireCanGrasp(gym.Env):
                  ring_marker_size: float = 0.01,     # small spheres to draw the standoff ring
                  ring_segments: int = 36,            # how many points for the ring
                  arrow_thickness: float = 0.01,      # thickness for palm->target arrow
+
+                 # === NEW: robustness helpers (conservative) ===
+                 adaptive_standoff: bool = True,
+                 standoff_near: float = 0.012,
+                 standoff_far:  float = 0.022,
+                 standoff_far_start: float = 0.28,
+                 standoff_far_full:  float = 0.42,
+
+                 dynamic_action_scale: bool = True,
+                 action_scale_min: float = 0.007,
+                 action_scale_max: float = 0.018,
+
+                 near_tau_scale: float = 0.85,          # extra torque scaling when near
+                 angular_align_w: float = 1.8,          # penalize angular offset around can
+                 outside_buffer: float = 0.03,          # m beyond ring where we add small cost
+                 outside_pen_w: float = 1.5,
+                 centerline_pen_w: float = 0.25,        # keep near can mid-height when near
+
+                 # === NEW: enforce 5cm stop on right side ===
+                 enforce_fixed_gap: bool = True,        # override adaptive gap if True
+                 fixed_gap_m: float = 0.05,             # 5 cm default
+                 force_side: str | None = "right",      # "right", "left", or None to keep prior logic
+                 ring_guard: float = 0.006,             # guard inside ring (m)
+                 ring_inner_barrier_k: float = 1200.0,  # strength of inner ring wall
+                 success_use_ring: bool = True,         # succeed on ring, not just point
+                 ring_radius_tol: float = 0.005,        # ±5 mm tolerance on the ring
+                 azimuth_tol_deg: float = 25.0,         # stay within ±25° of the right side
+
                  **kwargs):
         if kwargs:
             import warnings
@@ -246,6 +272,34 @@ class G1InspireCanGrasp(gym.Env):
         self.ring_segments = int(ring_segments)
         self.arrow_thickness = float(arrow_thickness)
 
+        # === NEW: robustness helpers config ===
+        self.adaptive_standoff = bool(adaptive_standoff)
+        self.standoff_near = float(standoff_near)
+        self.standoff_far  = float(standoff_far)
+        self.standoff_far_start = float(standoff_far_start)
+        self.standoff_far_full  = float(standoff_far_full)
+
+        self.dynamic_action_scale = bool(dynamic_action_scale)
+        self.action_scale_min = float(action_scale_min)
+        self.action_scale_max = float(action_scale_max)
+
+        self.near_tau_scale = float(near_tau_scale)
+        self.angular_align_w = float(angular_align_w)
+        self.outside_buffer  = float(outside_buffer)
+        self.outside_pen_w   = float(outside_pen_w)
+        self.centerline_pen_w = float(centerline_pen_w)
+
+        # === NEW: ring stop & side control ===
+        self.enforce_fixed_gap = bool(enforce_fixed_gap)
+        self.fixed_gap_m = float(fixed_gap_m)
+        self.force_side = (None if force_side is None else str(force_side).lower())
+        assert self.force_side in (None, "right", "left")
+        self.ring_guard = float(ring_guard)
+        self.ring_inner_barrier_k = float(ring_inner_barrier_k)
+        self.success_use_ring = bool(success_use_ring)
+        self.ring_radius_tol = float(ring_radius_tol)
+        self.azimuth_tol_deg = float(azimuth_tol_deg)
+
         # can ids (BOTH body and geom) and sizes
         self.can_bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "can_body")
         if self.can_bid < 0:
@@ -319,21 +373,21 @@ class G1InspireCanGrasp(gym.Env):
         self._maybe_setup_headcam_intrinsics()
         self._off_renderer = None  # allocated lazily to avoid overhead in training
 
-        # --- success latch / near-field damping (NEW) ---
+        # --- success latch / near-field damping (existing) ---
         self.success_deadband = 0.004      # m; tolerate tiny motion while "on target"
         self.success_hold_steps = 15       # frames to hold before terminating
         self._hold_counter = 0
 
-        # --- near-field PD softening (NEW) ---
+        # --- near-field PD softening (existing) ---
         self.near_d_target = 0.03          # m; within this, soften PD / torques
         self.near_kp_scale = 0.5
         self.near_kd_scale = 0.5
 
-        # --- action smoothing (NEW) ---
+        # --- action smoothing (existing) ---
         self.action_smoothing = 0.2        # EMA coeff (0 none .. 1 very smooth)
         self._prev_action = None
 
-        # --- smooth barrier against going inside (NEW) ---
+        # --- smooth barrier against going inside the CAN (existing) ---
         self.barrier_margin = 0.003        # treat as "soft" can that's slightly larger
         self.barrier_k = 600.0             # strength of smooth wall
         self.barrier_terminate_mm = 2.0    # terminate if >2mm inside (still)
@@ -347,7 +401,6 @@ class G1InspireCanGrasp(gym.Env):
     def _maybe_setup_headcam_intrinsics(self):
         if not self.enable_headcam or self.cam_id < 0:
             return
-        # fovy is degrees in MuJoCo model
         fovy_deg = float(self.model.cam_fovy[self.cam_id])
         fovy = np.deg2rad(fovy_deg)
         W, H = self.headcam_size
@@ -357,18 +410,13 @@ class G1InspireCanGrasp(gym.Env):
         self.cam_fx = self.cam_fy  # square pixels assumption
 
     def _world_to_cam(self, Xw: np.ndarray):
-        """Return (Xc, valid) with Xc in camera coords."""
         if self.cam_id < 0: return None, False
         C = self.data.cam_xpos[self.cam_id]
         R = self.data.cam_xmat[self.cam_id].reshape(3,3)
-        # world->cam: R^T (X - C)
         Xc = R.T @ (Xw - C)
-        # Positive Z means in front, but MuJoCo uses -Z forward convention for GL.
-        # For projection we require Xc[2] > 1e-6.
         return Xc, (Xc[2] > 1e-6)
 
     def _project(self, Xw: np.ndarray):
-        """Project world point to pixel (u,v) if possible."""
         if self.cam_fx is None: return None, False
         Xc, ok = self._world_to_cam(Xw)
         if not ok: return None, False
@@ -377,11 +425,9 @@ class G1InspireCanGrasp(gym.Env):
         return np.array([u, v], dtype=np.float32), True
 
     def get_headcam_rgb(self):
-        """Return BGR (H,W,3) from the head camera for eval/visualization."""
         if not self.enable_headcam:
             return None
         if self.headcam_for_eval_only and self.render_mode != "human":
-            # keep train loop fast
             return None
         if not HAVE_MJ_RENDERER:
             return None
@@ -390,7 +436,6 @@ class G1InspireCanGrasp(gym.Env):
             self._off_renderer = MJRenderer(self.model, W, H)
         self._off_renderer.update_scene(self.data, camera=self.headcam_name)
         rgb = self._off_renderer.render()
-        # Convert RGB->BGR for OpenCV
         return rgb[:, :, ::-1].copy()
 
     # ---------- geometry ----------
@@ -399,24 +444,55 @@ class G1InspireCanGrasp(gym.Env):
         R   = self.data.geom_xmat[self.can_gid].reshape(3,3).copy()
         y_axis = R[:,1]; z_axis = R[:,2]
         return pos, y_axis, z_axis, R
-    
+
+    # === NEW: side sign helper ===
+    def _side_sign(self, can_center):
+        if self.force_side == "right":
+            return -1.0
+        if self.force_side == "left":
+            return +1.0
+        if self.auto_choose_nearer_side:
+            palm = self.data.site_xpos[self.palm_sid]
+            return -1.0 if np.dot(palm - can_center, self._can_frame()[1]) >= 0 else +1.0
+        # fixed by hand side
+        return (-1.0 if self.right_side else +1.0)
+
+    # === NEW: adaptive (or fixed) standoff helper ===
+    def _effective_standoff(self, can_center=None):
+        if self.enforce_fixed_gap:
+            return self.fixed_gap_m
+        if not self.adaptive_standoff:
+            return self.standoff
+        try:
+            shoulder = self.data.xipos[self.shoulder_bid].copy()
+        except Exception:
+            shoulder = self.data.body_xpos[self.shoulder_bid].copy()
+        if can_center is None:
+            can_center = self.data.geom_xpos[self.can_gid].copy()
+        dist_sc = float(np.linalg.norm(can_center - shoulder))
+        if self.standoff_far_full <= self.standoff_far_start:
+            return self.standoff
+        t = (dist_sc - self.standoff_far_start) / (self.standoff_far_full - self.standoff_far_start)
+        t = float(np.clip(t, 0.0, 1.0))
+        target_gap = (1.0 - t) * self.standoff_near + t * self.standoff_far
+        return 0.5 * self.standoff + 0.5 * target_gap
+
     def set_standoff(self, new_standoff: float):
-        """Move the target further/closer from the can surface (meters)."""
         self.standoff = float(max(0.0, new_standoff))
 
+    def set_fixed_gap(self, gap_m: float, enforce: bool = True):
+        """Runtime knob: set a fixed ring gap and optionally enforce it."""
+        self.fixed_gap_m = float(max(0.0, gap_m))
+        self.enforce_fixed_gap = bool(enforce)
+
     def set_auto_side(self, enable: bool):
-        """Choose side automatically (True) or fixed by hand side (False)."""
         self.auto_choose_nearer_side = bool(enable)
 
     def _target_pos(self):
         can_center, y_axis, _, _ = self._can_frame()
-        # fixed side per chosen hand unless auto mode is enabled
-        if self.auto_choose_nearer_side:
-            palm = self.data.site_xpos[self.palm_sid]
-            sgn = -1.0 if np.dot(palm - can_center, y_axis) >= 0 else +1.0
-        else:
-            sgn = (-1.0 if self.right_side else +1.0)
-        return can_center + sgn * (self.can_radius + self.standoff) * y_axis
+        sgn = self._side_sign(can_center)
+        eff_standoff = self._effective_standoff(can_center)
+        return can_center + sgn * (self.can_radius + eff_standoff) * y_axis
 
     def _touching_can(self) -> bool:
         cid = self.can_gid
@@ -433,7 +509,6 @@ class G1InspireCanGrasp(gym.Env):
     def _domain_randomize_can(self):
         if not self.domain_randomize:
             return
-        # jitter size
         sz = self._base_can_size.copy()
         f = self.size_jitter_frac
         sz[0] *= (1.0 + np.random.uniform(-f,+f))  # radius
@@ -441,20 +516,15 @@ class G1InspireCanGrasp(gym.Env):
         self.model.geom_size[self.can_gid] = sz
         self.can_radius = float(sz[0]); self.can_half_h = float(sz[1])
         self.min_radial_gap = self.can_radius + 0.006
-        # jitter friction
         fr = self._base_can_fric.copy()
         g  = self.friction_jitter_frac
         self.model.geom_friction[self.can_gid] = fr * (1.0 + np.random.uniform(-g,+g, size=3))
 
     def _randomize_pose(self):
-        """Randomize can pose per episode.
-        - If the can has a free joint (can_free >= 0): randomize via qpos.
-        - Else (fixed body): randomize by writing to model.body_pos/body_quat."""
         s = self.rand_scale
         x0, y0, z0 = self.ws_center
         hx, hy, hz = self.ws_half
 
-        # Hand-aware Y, but with a tighter lateral limit
         hy_eff = self.hy_limit * s
         if self.right_side:
             y = y0 + np.random.uniform(0, +hy_eff)
@@ -464,7 +534,6 @@ class G1InspireCanGrasp(gym.Env):
         x = x0 + np.random.uniform(-hx*s, +hx*s)
         z = z0 + np.random.uniform(-hz*s, +hz*s)
 
-        # Small random yaw/tilt
         yaw   = np.random.uniform(-self.yaw_range*s,   +self.yaw_range*s)
         pitch = np.random.uniform(-self.pitch_range*s, +self.pitch_range*s)
         roll  = np.random.uniform(-self.roll_range*s,  +self.roll_range*s)
@@ -477,22 +546,18 @@ class G1InspireCanGrasp(gym.Env):
         qy = cr*sp*cy + sr*cp*sy
         qz = cr*cp*sy - sr*sp*cy
 
-        # === size/friction jitter (optional) ===
         self._domain_randomize_can()
 
         if hasattr(self, "can_free") and self.can_free >= 0:
-            # Free-jointed can → randomize via qpos
             adr = self.model.jnt_qposadr[self.can_free]
             self.data.qpos[adr:adr+3]     = np.array([x, y, z], dtype=np.float64)
             self.data.qpos[adr+3:adr+7]   = np.array([qw, qx, qy, qz], dtype=np.float64)
             dof = self.model.jnt_dofadr[self.can_free]
             self.data.qvel[dof:dof+6]     = 0.0
         else:
-            # FIXED can → randomize by editing model body frame (keeps it floating in air)
             self.model.body_pos[self.can_bid]  = np.array([x, y, z], dtype=np.float64)
             self.model.body_quat[self.can_bid] = np.array([qw, qx, qy, qz], dtype=np.float64)
 
-        # Recompute transforms
         mujoco.mj_forward(self.model, self.data)
 
     # ---------- locks ----------
@@ -515,7 +580,6 @@ class G1InspireCanGrasp(gym.Env):
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
 
-        # safe default poses (both arms)
         if self.right_side:
             _set_qpos_if(self.model, self.data, "right_shoulder_pitch_joint", -0.15)
             _set_qpos_if(self.model, self.data, "right_shoulder_roll_joint",  -0.25)
@@ -527,7 +591,6 @@ class G1InspireCanGrasp(gym.Env):
             _set_qpos_if(self.model, self.data, "left_shoulder_yaw_joint",    0.00)
             _set_qpos_if(self.model, self.data, "left_elbow_joint",           0.35)
 
-        # level wrists and lock snapshot
         for jn in self.wrist_joint_names:
             _set_qpos_if(self.model, self.data, jn, 0.0)
 
@@ -539,18 +602,17 @@ class G1InspireCanGrasp(gym.Env):
         self._record_freezes()
         self._enforce_freezes()
 
-        # PD reference starts at current
         self.des_q = self.data.qpos[self.ctrl_qadr].copy()
         self.step_count = 0
         self._prev_d = None
-        self._prev_action = None     # NEW: reset smoothing state
-        self._hold_counter = 0       # NEW: reset latch
+        self._prev_action = None
+        self._hold_counter = 0
 
         return self._get_obs(), {}
 
-    # ---------- control (EMA smoothing + near-field scaling) ----------
-    def _apply_action(self, action, near_scale: float = 1.0):
-        # --- EMA action smoothing ---
+    # ---------- control (EMA smoothing + near-field scaling + dynamic scale) ----------
+    def _apply_action(self, action, near_scale: float = 1.0, action_scale_override: float | None = None):
+        # EMA smoothing
         if self._prev_action is None:
             self._prev_action = np.clip(action, -1.0, 1.0).astype(np.float64)
         else:
@@ -560,8 +622,11 @@ class G1InspireCanGrasp(gym.Env):
             )
         action = self._prev_action
 
+        # dynamic step size
+        step_scale = self.action_scale if action_scale_override is None else float(action_scale_override)
+
         action = np.clip(action, -1.0, 1.0).astype(np.float64)
-        proposed = self.des_q + self.action_scale * action
+        proposed = self.des_q + step_scale * action
         proposed = np.clip(proposed, self.ctrl_range[:,0], self.ctrl_range[:,1])
         delta = np.clip(proposed - self.des_q, -self.max_joint_step, self.max_joint_step)
         self.des_q = self.des_q + delta
@@ -574,6 +639,10 @@ class G1InspireCanGrasp(gym.Env):
         kd_vec = self.kd_vec * near_scale
 
         tau = kp_vec*(self.des_q - q) - kd_vec*qd
+
+        # extra torque scaling when near (gentle)
+        tau *= near_scale * self.near_tau_scale + (1.0 - near_scale)
+
         tau = np.clip(tau, -self.torque_limit_vec[:len(tau)], self.torque_limit_vec[:len(tau)])
         self.data.ctrl[:] = 0.0
         self.data.ctrl[self.ctrl_act_ids] = tau
@@ -590,21 +659,40 @@ class G1InspireCanGrasp(gym.Env):
         return np.concatenate([q, qd, can_center, can_quat, rel]).astype(np.float32)
 
     def step(self, action):
-        # keep locks
         self._enforce_freezes()
 
-        # pre-forward to compute near-field scale
+        # Pre-forward to compute near-field + dynamic action scale
         mujoco.mj_forward(self.model, self.data)
         palm_pre = self.data.site_xpos[self.palm_sid].copy()
-        can_center_pre, _, _, _ = self._can_frame()
+        can_center_pre, y_axis_pre, z_axis_pre, _ = self._can_frame()
+        eff_standoff_pre = self._effective_standoff(can_center_pre)
+        ring_r_pre = self.can_radius + eff_standoff_pre
+        vec_cp_pre = palm_pre - can_center_pre
+        vec_perp_pre = vec_cp_pre - np.dot(vec_cp_pre, z_axis_pre) * z_axis_pre
+        radial_pre = float(np.linalg.norm(vec_perp_pre))
+
         target_pre = self._target_pos()
         d_target_pre = float(np.linalg.norm(target_pre - palm_pre))
 
-        # near-field PD softening
         near_scale = (self.near_kp_scale if d_target_pre < self.near_d_target else 1.0)
 
-        # apply action with near-scale and integrate
-        self._apply_action(action, near_scale=near_scale)
+        # dynamic action scaling
+        if self.dynamic_action_scale:
+            # 0 m -> min scale ; 0.5 m -> max scale  (clamped)
+            t = float(np.clip(d_target_pre / 0.50, 0.0, 1.0))
+            dyn_scale = (1.0 - t) * self.action_scale_min + t * self.action_scale_max
+            step_scale = dyn_scale
+        else:
+            step_scale = None
+
+        # tiny reach assist only during eval if enabled
+        if self.reach_assist_eval and self.render_mode != "none":
+            if self.idx_sh_pitch is not None and d_target_pre > 0.25:
+                action = np.array(action, dtype=np.float64)
+                action[self.idx_sh_pitch] += 0.2 * self.reach_assist_gain
+                action = np.clip(action, -1.0, 1.0)
+
+        self._apply_action(action, near_scale=near_scale, action_scale_override=step_scale)
         for _ in range(5):
             mujoco.mj_step(self.model, self.data)
             self._enforce_freezes()
@@ -613,15 +701,15 @@ class G1InspireCanGrasp(gym.Env):
         # --- current kinematics
         palm = self.data.site_xpos[self.palm_sid].copy()
         can_center, y_axis, z_axis, _ = self._can_frame()
+        eff_standoff = self._effective_standoff(can_center)
+        sgn = self._side_sign(can_center)
         target = self._target_pos()
 
-        # shoulder world-frame position
         try:
             shoulder = self.data.xipos[self.shoulder_bid].copy()
         except Exception:
             shoulder = self.data.body_xpos[self.shoulder_bid].copy()
 
-        # orientation terms (palm frame)
         R_palm = self.data.site_xmat[self.palm_sid].reshape(3, 3).copy()
         palm_forward = R_palm[:, 0]
         palm_up      = R_palm[:, 2]
@@ -631,7 +719,7 @@ class G1InspireCanGrasp(gym.Env):
         vec_cp   = palm - can_center
         vec_perp = vec_cp - np.dot(vec_cp, z_axis) * z_axis
         radial   = float(np.linalg.norm(vec_perp))
-        ring_r   = self.can_radius + self.standoff
+        ring_r   = self.can_radius + eff_standoff
         near_lateral = radial < (ring_r + 0.015)
 
         d_target = float(np.linalg.norm(target - palm))
@@ -641,11 +729,10 @@ class G1InspireCanGrasp(gym.Env):
         self._prev_d = d_target
 
         # --- side constraint (hand-specific)
-        if self.auto_choose_nearer_side:
-            sgn = -1.0 if np.dot(palm - can_center, y_axis) >= 0 else +1.0
-            side_progress = sgn * float(np.dot(palm - can_center, y_axis))
+        if self.auto_choose_nearer_side and self.force_side is None:
+            sgn_tmp = -1.0 if np.dot(palm - can_center, y_axis) >= 0 else +1.0
+            side_progress = sgn_tmp * float(np.dot(palm - can_center, y_axis))
         else:
-            sgn = -1.0 if self.right_side else +1.0
             side_progress = sgn * float(np.dot(palm - can_center, y_axis))
         side_violation = max(0.0, self.side_margin - side_progress)
         side_pen = side_violation ** 2
@@ -669,24 +756,38 @@ class G1InspireCanGrasp(gym.Env):
             q_el = float(self.data.qpos[self.elbow_qadr])
             elbow_pen = self.elbow_coef * (q_el - self.elbow_pref) ** 2
             if self.elbow_far_full > self.elbow_far_start:
-                t = (dist_sc - self.elbow_far_start) / (self.elbow_far_full - self.elbow_far_start)
-                t = float(np.clip(t, 0.0, 1.0))
-                elbow_target = (1.0 - t) * self.elbow_close_target + t * self.elbow_far_target
+                t_el = (dist_sc - self.elbow_far_start) / (self.elbow_far_full - self.elbow_far_start)
+                t_el = float(np.clip(t_el, 0.0, 1.0))
+                elbow_target = (1.0 - t_el) * self.elbow_close_target + t_el * self.elbow_far_target
                 elbow_pen += self.elbow_adapt_coef * (q_el - elbow_target) ** 2
             if near_lateral:
                 elbow_pen += self.elbow_close_coef * (q_el - self.elbow_close_target) ** 2
 
-        # encourage longer reach when far (clamped)
-        desired_len = dist_sc - (self.can_radius + self.standoff + 0.02)
+        desired_len = dist_sc - (self.can_radius + eff_standoff + 0.02)
         desired_len = float(np.clip(desired_len, self.reach_min, self.reach_max))
         reach_deficit = max(0.0, desired_len - reach_len)
         reach_out_pen = self.reach_out_coef * (reach_deficit ** 2)
 
-        # --- ring shaping
+        # --- ring shaping (toward ring, not into the can)
         ring_dev = abs(radial - ring_r)
         ring_shaping = - self.ring_shaping_w * ring_dev
 
-        # --- smooth anti-penetration barrier (soft wall)
+        # --- NEW: angular alignment penalty around can (encourage being on the chosen side)
+        if radial > 1e-6:
+            v = vec_perp / radial
+            desired_side = sgn * y_axis / (np.linalg.norm(y_axis) + 1e-9)
+            az_dot = float(np.clip(np.dot(v, desired_side), -1.0, 1.0))
+            angular_pen = self.angular_align_w * (1.0 - az_dot)  # 0 when perfectly on side
+        else:
+            desired_side = sgn * y_axis  # unused when radial tiny
+            az_dot = 0.0
+            angular_pen = 0.0
+
+        # --- NEW: small penalty for staying too far outside the ring
+        outside_dev = max(0.0, radial - (ring_r + self.outside_buffer))
+        outside_pen = self.outside_pen_w * (outside_dev ** 2)
+
+        # --- smooth anti-penetration barrier (soft wall) at CAN surface
         signed_gap = (radial - (self.can_radius + self.barrier_margin))  # >0 outside; <0 inside
         if signed_gap >= 0.0:
             inner_barrier = 0.0
@@ -695,11 +796,23 @@ class G1InspireCanGrasp(gym.Env):
             penetration = -signed_gap
             inner_barrier = self.barrier_k * (penetration ** 2)
 
+        # --- NEW: inner barrier at the TARGET RING (prevents going inside desired 5 cm)
+        ring_inner_barrier = 0.0
+        inner_to_ring = (ring_r - self.ring_guard) - radial
+        if inner_to_ring > 0.0:
+            ring_inner_barrier = self.ring_inner_barrier_k * (inner_to_ring ** 2)
+
         # top-down penalty only near the wall
         topdown_pen = 0.0
         if near_lateral:
             vertical_dev = abs(float(np.dot(vec_cp, z_axis)))
             topdown_pen = 0.2 * max(0.0, vertical_dev - self.can_half_h * 0.4)
+
+        # NEW: height centering near the wall (stay around mid-height)
+        centerline_pen = 0.0
+        if near_lateral:
+            h_off = abs(float(np.dot(vec_cp, z_axis)))
+            centerline_pen = self.centerline_pen_w * (h_off / (self.can_half_h + 1e-9)) ** 2
 
         touching = self._touching_can()
         touch_pen = self.touch_penalty if touching else 0.0
@@ -717,7 +830,11 @@ class G1InspireCanGrasp(gym.Env):
             + dense_dist
             - self.side_weight * side_pen
             - inner_barrier
+            - ring_inner_barrier
             - topdown_pen
+            - centerline_pen
+            - angular_pen
+            - outside_pen
             - touch_pen
             - ctrl_pen
             - vel_smooth
@@ -728,19 +845,34 @@ class G1InspireCanGrasp(gym.Env):
             - reach_out_pen
         )
 
-        # --- success + hold latch (stops motion when close enough)
-        close_enough = (d_target <= (self.standoff_tol + self.success_deadband)) and (side_violation == 0.0) and (penetration == 0.0)
-        if close_enough and not touching:
+        # --- success + hold latch
+        # Ring-based success: on the right-side ring within tolerances
+        ring_ok = False
+        if self.success_use_ring and radial > 1e-6:
+            az_thr = math.cos(math.radians(self.azimuth_tol_deg))
+            ring_ok = (
+                abs(radial - ring_r) <= self.ring_radius_tol and
+                az_dot >= az_thr and
+                side_violation == 0.0 and
+                penetration == 0.0
+            )
+
+        # Point-based (legacy) or ring-based close condition
+        close_enough_point = (d_target <= (self.standoff_tol + self.success_deadband))
+        close_enough = (ring_ok or close_enough_point) and (not touching)
+
+        if close_enough:
             self._hold_counter += 1
-            # freeze the controller during hold
+            # freeze the controller during hold and zero velocities on controlled dofs
             self.des_q = self.data.qpos[self.ctrl_qadr].copy()
             self.data.ctrl[self.ctrl_act_ids] = 0.0
+            self.data.qvel[self.ctrl_dadr] = 0.0
         else:
             self._hold_counter = 0
 
         success = (self._hold_counter >= self.success_hold_steps)
 
-        # hard terminate if deeply inside (safety)
+        # hard terminate if deeply inside CAN (safety)
         hard_violate = (penetration * 1000.0) > self.barrier_terminate_mm
 
         self.step_count += 1
@@ -762,16 +894,24 @@ class G1InspireCanGrasp(gym.Env):
             "hold_counter": self._hold_counter,
             "d_target": d_target,
             "radial": radial,
+            "ring_r": ring_r,
+            "ring_ok": ring_ok,
+            "az_dot": az_dot,
             "approach_r": approach_r,
             "ring_dev": ring_dev,
             "side_pen": side_pen,
             "inner_barrier": inner_barrier,
+            "ring_inner_barrier": ring_inner_barrier,
             "penetration": penetration,
             "topdown_pen": topdown_pen,
+            "centerline_pen": centerline_pen,
+            "angular_pen": angular_pen,
+            "outside_pen": outside_pen,
             "upright_pen": upright_pen,
             "lookat_pen": lookat_pen,
             "elbow_pen": elbow_pen,
             "reach_out_pen": reach_out_pen,
+            "eff_standoff": eff_standoff,
             "headcam_seen": headcam_seen,
             "headcam_uv": None if head_uv is None else head_uv.tolist(),
             "headcam_dist_m": head_dist,
@@ -788,36 +928,28 @@ class G1InspireCanGrasp(gym.Env):
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
             return
 
-        # Keep sim transforms fresh
         mujoco.mj_forward(self.model, self.data)
 
-        # Always draw a big target marker so it's obvious
         try:
             target = self._target_pos()
             can_center, y_axis, z_axis, _ = self._can_frame()
             palm = self.data.site_xpos[self.palm_sid].copy()
-            ring_r = self.can_radius + self.standoff
+            eff_standoff = self._effective_standoff(can_center)
+            sgn = self._side_sign(can_center)
+            ring_r = self.can_radius + eff_standoff
 
-            # 1) Big sphere at the target
             if self.debug_draw_target:
                 self.viewer.add_marker(
                     pos=target,
-                    size=(self.target_marker_size,)*3,    # BIG, clearly visible
-                    rgba=(1.0, 0.0, 1.0, 0.8),            # magenta, mostly opaque
+                    size=(self.target_marker_size,)*3,
+                    rgba=(1.0, 0.0, 1.0, 0.8),
                     type=mujoco.mjtGeom.mjGEOM_SPHERE,
                     label="TARGET"
                 )
 
-                # 2) Draw the standoff ring (circle around the can axis at the chosen side)
-                # The ring is a circle in the plane orthogonal to z_axis, centered at:
-                # can_center + sgn * ring_r * y_axis  (same lateral offset as the target)
-                sgn = -1.0 if (self.auto_choose_nearer_side and np.dot(palm - can_center, y_axis) >= 0) \
-                            else (-1.0 if self.right_side else +1.0)
                 ring_center = can_center + sgn * ring_r * y_axis
 
-                # Build an orthonormal basis (u,v) spanning the circle plane (perpendicular to z_axis)
                 z = z_axis / (np.linalg.norm(z_axis) + 1e-9)
-                # pick any vector not parallel to z to start
                 tmp = np.array([1.0, 0.0, 0.0])
                 if abs(np.dot(tmp, z)) > 0.9:
                     tmp = np.array([0.0, 1.0, 0.0])
@@ -831,18 +963,14 @@ class G1InspireCanGrasp(gym.Env):
                     self.viewer.add_marker(
                         pos=p,
                         size=(self.ring_marker_size,)*3,
-                        rgba=(0.2, 0.8, 1.0, 0.8),        # bright cyan
+                        rgba=(0.2, 0.8, 1.0, 0.8),
                         type=mujoco.mjtGeom.mjGEOM_SPHERE
                     )
 
-                # 3) Arrow from palm → target (helps see approach direction)
-                # MuJoCo marker: use a capsule as an "arrow shaft"
                 mid = 0.5*(palm + target)
                 vec = target - palm
                 L = float(np.linalg.norm(vec)) + 1e-9
                 dirn = vec / L
-                # Build a rotation matrix whose x-axis aligns with dirn
-                # Make y,z orthonormal (any stable choice is fine for a marker)
                 x = dirn
                 t = np.array([0.0, 0.0, 1.0]) if abs(dirn[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
                 y = np.cross(t, x); y /= (np.linalg.norm(y) + 1e-9)
@@ -850,15 +978,14 @@ class G1InspireCanGrasp(gym.Env):
                 xmat = np.column_stack([x, y, z]).reshape(-1)
 
                 self.viewer.add_marker(
-                    pos=mid,                 # center of the capsule
+                    pos=mid,
                     size=(0.5*L, self.arrow_thickness, self.arrow_thickness),
                     mat=xmat,
-                    rgba=(1.0, 0.5, 0.0, 0.8),  # orange
+                    rgba=(1.0, 0.5, 0.0, 0.8),
                     type=mujoco.mjtGeom.mjGEOM_CAPSULE
                 )
 
         except Exception:
-            # non-fatal draw issues should not crash rendering
             pass
 
         self.viewer.sync()
